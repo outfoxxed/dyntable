@@ -41,9 +41,14 @@ pub fn dyntable(
 			.impl_vtable_repr()
 			.to_tokens(&mut token_stream);
 		dyntable
+			.clone()
 			.impl_subtable()?
 			.into_iter()
 			.for_each(|table| table.to_tokens(&mut token_stream));
+		dyntable
+			.clone()
+			.impl_dyntable()?
+			.to_tokens(&mut token_stream);
 
 		Ok(token_stream)
 	})();
@@ -68,11 +73,15 @@ mod process {
 		ConstParam,
 		Expr,
 		ExprCall,
+		ExprCast,
 		ExprField,
 		ExprMethodCall,
 		ExprPath,
 		ExprReference,
+		ExprStruct,
+		ExprUnsafe,
 		Field,
+		FieldValue,
 		Fields,
 		FieldsNamed,
 		FnArg,
@@ -81,6 +90,7 @@ mod process {
 		Generics,
 		Ident,
 		ImplItem,
+		ImplItemConst,
 		ImplItemMethod,
 		ImplItemType,
 		ItemImpl,
@@ -101,6 +111,7 @@ mod process {
 		TraitItem,
 		Type,
 		TypeBareFn,
+		TypeInfer,
 		TypeParam,
 		TypeParamBound,
 		TypeParen,
@@ -387,7 +398,7 @@ mod process {
 							)),
 							colon_token: Default::default(),
 							ty: vtable_path(node),
-						})
+						});
 					}
 
 					for item in self.dyntrait.items {
@@ -989,6 +1000,348 @@ mod process {
 			}
 
 			Ok(impls)
+		}
+
+		pub fn impl_dyntable(self) -> syn::Result<ItemImpl> {
+			let vtable_generics = {
+				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
+				generics.params =
+					into_vtable_generics(std::mem::take(&mut generics.params)).collect();
+
+				generics
+			};
+
+			let impl_target_ident = Ident::new("__DynTarget", Span::call_site());
+			let vtable_type = Type::Path(TypePath {
+				qself: None,
+				path: Path::from(PathSegment {
+					ident: self.vtable_ident.clone(),
+					arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+						colon2_token: None,
+						lt_token: Default::default(),
+						gt_token: Default::default(),
+						args: generic_params_into_args(vtable_generics.params).collect(),
+					}),
+				}),
+			});
+
+			Ok(ItemImpl {
+				attrs: Vec::new(),
+				defaultness: None,
+				unsafety: Some(Default::default()),
+				impl_token: Default::default(),
+				generics: {
+					let mut generics = self.dyntrait.generics.clone().strip_dyntable();
+
+					generics.params.push(GenericParam::Type(TypeParam {
+						attrs: Vec::new(),
+						ident: impl_target_ident.clone(),
+						colon_token: Some(Default::default()),
+						bounds: [TypeParamBound::Trait(TraitBound {
+							paren_token: None,
+							modifier: TraitBoundModifier::None,
+							lifetimes: None,
+							path: Path::from(PathSegment {
+								ident: self.dyntrait.ident,
+								arguments: PathArguments::AngleBracketed(
+									AngleBracketedGenericArguments {
+										colon2_token: None,
+										lt_token: Default::default(),
+										gt_token: Default::default(),
+										args: generic_params_into_args(
+											self.dyntrait.generics.params.clone(),
+										)
+										.collect(),
+									},
+								),
+							}),
+						})]
+						.into_iter()
+						.collect(),
+						eq_token: None,
+						default: None,
+					}));
+
+					generics
+				},
+				trait_: Some((
+					None,
+					Path {
+						leading_colon: Some(Default::default()),
+						segments: {
+							let mut segments = ["dyntable", "DynTable"]
+								.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
+								.into_iter()
+								.collect::<Punctuated<PathSegment, _>>();
+
+							let last = segments.last_mut().unwrap();
+							last.arguments =
+								PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+									colon2_token: None,
+									lt_token: Default::default(),
+									gt_token: Default::default(),
+									args: [GenericArgument::Type(vtable_type.clone())]
+										.into_iter()
+										.collect(),
+								});
+
+							segments
+						},
+					},
+					<Token![for]>::default(),
+				)),
+				self_ty: Box::new(Type::Path(TypePath {
+					qself: None,
+					path: Path::from(impl_target_ident.clone()),
+				})),
+				brace_token: Default::default(),
+				items: vec![
+					ImplItem::Const(ImplItemConst {
+						attrs: Vec::new(),
+						vis: Visibility::Inherited,
+						defaultness: None,
+						const_token: Default::default(),
+						ident: Ident::new("STATIC_VTABLE", Span::call_site()),
+						colon_token: Default::default(),
+						ty: Type::Reference(TypeReference {
+							and_token: Default::default(),
+							lifetime: Some(Lifetime::new("'static", Span::call_site())),
+							mutability: None,
+							elem: Box::new(vtable_type.clone()),
+						}),
+						eq_token: Default::default(),
+						semi_token: Default::default(),
+						expr: Expr::Reference(ExprReference {
+							attrs: Vec::new(),
+							and_token: Default::default(),
+							raw: Default::default(),
+							mutability: None,
+							expr: Box::new(Expr::Path(ExprPath {
+								attrs: Vec::new(),
+								qself: None,
+								path: Path {
+									leading_colon: None,
+									segments: ["Self", "VTABLE"]
+										.map(|p| {
+											PathSegment::from(Ident::new(p, Span::call_site()))
+										})
+										.into_iter()
+										.collect(),
+								},
+							})),
+						}),
+					}),
+					ImplItem::Const(ImplItemConst {
+						attrs: Vec::new(),
+						vis: Visibility::Inherited,
+						defaultness: None,
+						const_token: Default::default(),
+						ident: Ident::new("VTABLE", Span::call_site()),
+						colon_token: Default::default(),
+						ty: vtable_type,
+						eq_token: Default::default(),
+						semi_token: Default::default(),
+						expr: Expr::Struct(ExprStruct {
+							attrs: Vec::new(),
+							path: Path::from(self.vtable_ident),
+							brace_token: Default::default(),
+							fields: {
+								let mut fields = Punctuated::<FieldValue, _>::new();
+
+								let supertables = match self.dyntrait.generics.where_clause {
+									None => Vec::new(),
+									Some(DynWhereClause { predicates, .. }) => {
+										extract_supertables(self.dyntrait.supertraits, predicates)?
+									},
+								};
+
+								for SupertableGraph { node, .. } in supertables {
+									fields.push(FieldValue {
+										attrs: Vec::new(),
+										member: Member::Named(Ident::new(
+											&format!(
+												"__vtable_{}",
+												node.segments.last().unwrap().ident
+											),
+											node.segments.last().unwrap().span(),
+										)),
+										colon_token: Some(Default::default()),
+										expr: Expr::Path(ExprPath {
+											attrs: Vec::new(),
+											qself: Some(QSelf {
+												lt_token: Default::default(),
+												gt_token: Default::default(),
+												as_token: Default::default(),
+												position: 2,
+												ty: Box::new(Type::Path(TypePath {
+													qself: None,
+													path: Path::from(impl_target_ident.clone()),
+												})),
+											}),
+											path: Path {
+												leading_colon: Default::default(),
+												segments: {
+													let mut segments =
+														["dyntable", "DynTable", "VTABLE"]
+															.map(|p| {
+																PathSegment::from(Ident::new(
+																	p,
+																	Span::call_site(),
+																))
+															})
+															.into_iter()
+															.collect::<Punctuated<PathSegment, _>>(
+															);
+
+													let dyntable_segment =
+														segments.iter_mut().skip(1).next().unwrap();
+													dyntable_segment.arguments =
+														PathArguments::AngleBracketed(
+															AngleBracketedGenericArguments {
+																colon2_token: None,
+																lt_token: Default::default(),
+																gt_token: Default::default(),
+																args: [GenericArgument::Type(
+																	vtable_path(node),
+																)]
+																.into_iter()
+																.collect(),
+															},
+														);
+
+													segments
+												},
+											},
+										}),
+									});
+								}
+
+								for item in self.dyntrait.items {
+									// item validation is already done in build_vtable
+									if let TraitItem::Method(method) = item {
+										let Signature {
+											unsafety,
+											abi,
+											fn_token,
+											ident,
+											paren_token,
+											inputs,
+											variadic,
+											output,
+											..
+										} = method.sig;
+
+										// checked in build_vtable
+										let abi = abi.or_else(|| self.default_abi.clone()).unwrap();
+
+										fields.push(FieldValue {
+											attrs: Vec::new(),
+											member: Member::Named(ident.clone()),
+											colon_token: Some(Default::default()),
+											expr: Expr::Unsafe(ExprUnsafe {
+												attrs: Vec::new(),
+												unsafe_token: Default::default(),
+												block: Block {
+													brace_token: Default::default(),
+													stmts: vec![Stmt::Expr(Expr::Call(ExprCall {
+														attrs: Vec::new(),
+														func: Box::new(Expr::Path(ExprPath {
+															attrs: Vec::new(),
+															qself: None,
+															path: Path {
+																leading_colon: Some(Default::default()),
+																segments: ["core", "intrinsics", "transmute"]
+																	.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
+																	.into_iter()
+																	.collect(),
+															},
+														})),
+														paren_token: Default::default(),
+														args: [Expr::Cast(ExprCast {
+															attrs: Vec::new(),
+															as_token: Default::default(),
+															expr: Box::new(Expr::Path(ExprPath {
+																attrs: Vec::new(),
+																qself: None,
+																path: Path {
+																	leading_colon: None,
+																	segments: [
+																		impl_target_ident.clone(),
+																		ident.clone(),
+																	]
+																	.map(|ident| PathSegment::from(ident))
+																	.into_iter()
+																	.collect(),
+																},
+															})),
+															ty: Box::new(Type::BareFn(TypeBareFn {
+																lifetimes: None,
+																unsafety,
+																abi: Some(abi),
+																fn_token,
+																paren_token,
+																inputs: inputs
+																	.into_iter()
+																	.map(|_| BareFnArg {
+																		attrs: Vec::new(),
+																		name: None,
+																		ty: Type::Infer(TypeInfer {
+																			underscore_token: Default::default(),
+																		}),
+																	})
+																	.collect(),
+																variadic,
+																output: match output {
+																	ReturnType::Default => ReturnType::Default,
+																	ReturnType::Type(arrow, _) => ReturnType::Type(
+																		arrow,
+																		Box::new(Type::Infer(TypeInfer {
+																			underscore_token: Default::default(),
+																		})),
+																	),
+																},
+															})),
+														})].into_iter().collect(),
+													}))],
+												},
+											}),
+										});
+									}
+								}
+
+								fields.push(FieldValue {
+									attrs: Vec::new(),
+									member: Member::Named(Ident::new(
+										"__generics",
+										Span::call_site(),
+									)),
+									colon_token: Some(Default::default()),
+									expr: Expr::Path(ExprPath {
+										attrs: Vec::new(),
+										qself: None,
+										path: Path {
+											leading_colon: Some(Default::default()),
+											segments: ["core", "marker", "PhantomData"]
+												.map(|p| {
+													PathSegment::from(Ident::new(
+														p,
+														Span::call_site(),
+													))
+												})
+												.into_iter()
+												.collect(),
+										},
+									}),
+								});
+
+								fields
+							},
+							dot2_token: None,
+							rest: None,
+						}),
+					}),
+				],
+			})
 		}
 	}
 }
