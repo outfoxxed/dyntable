@@ -49,6 +49,10 @@ pub fn dyntable(
 			.clone()
 			.impl_dyntable()?
 			.to_tokens(&mut token_stream);
+		dyntable
+			.clone()
+			.impl_trait_for_dyn()?
+			.to_tokens(&mut token_stream);
 
 		Ok(token_stream)
 	})();
@@ -60,15 +64,20 @@ pub fn dyntable(
 }
 
 mod process {
-	use std::collections::{HashMap, HashSet};
+	use std::{
+		collections::{HashMap, HashSet},
+		fmt::Debug,
+	};
 
 	use proc_macro2::Span;
+	use quote::ToTokens;
 	use syn::{
 		punctuated::Punctuated,
 		spanned::Spanned,
 		Abi,
 		AngleBracketedGenericArguments,
 		BareFnArg,
+		Binding,
 		Block,
 		ConstParam,
 		Expr,
@@ -76,9 +85,11 @@ mod process {
 		ExprCast,
 		ExprField,
 		ExprMethodCall,
+		ExprParen,
 		ExprPath,
 		ExprReference,
 		ExprStruct,
+		ExprUnary,
 		ExprUnsafe,
 		Field,
 		FieldValue,
@@ -97,9 +108,11 @@ mod process {
 		ItemStruct,
 		Lifetime,
 		Member,
+		PatType,
 		Path,
 		PathArguments,
 		PathSegment,
+		PredicateType,
 		QSelf,
 		Receiver,
 		ReturnType,
@@ -120,8 +133,11 @@ mod process {
 		TypeReference,
 		TypeTraitObject,
 		TypeTuple,
+		UnOp,
 		VisPublic,
 		Visibility,
+		WhereClause,
+		WherePredicate,
 	};
 
 	use crate::parse::{DynTrait, DynWhereClause, DynWherePredicate, DynWherePredicateSupertrait};
@@ -1341,6 +1357,376 @@ mod process {
 						}),
 					}),
 				],
+			})
+		}
+
+		pub fn impl_trait_for_dyn(self) -> syn::Result<ItemImpl> {
+			let subtable_generic_ident = Ident::new("__DynSubTables", Span::call_site());
+			let repr_generic_ident = Ident::new("__DynRepr", Span::call_site());
+
+			Ok(ItemImpl {
+				attrs: Vec::new(),
+				defaultness: None,
+				unsafety: None,
+				impl_token: Default::default(),
+				generics: {
+					let mut generics = self.dyntrait.generics.clone().strip_dyntable();
+
+					for param in &mut generics.params {
+						if let GenericParam::Type(ty) = param {
+							make_type_param_static(ty);
+						}
+					}
+
+					let subtable_paths = match self.dyntrait.generics.where_clause.clone() {
+						Some(where_clause) => {
+							let supertable_graph = extract_supertables(
+								self.dyntrait.supertraits.clone(),
+								where_clause.predicates.clone(),
+							)?;
+
+							// Expand and deduplicate supertable graph
+							let mut supertables = HashSet::<Path>::new();
+							for supertable in supertable_graph {
+								supertables.extend(supertable.iter().map(|p| p.clone()));
+								supertables.insert(supertable.node);
+							}
+
+							supertables.insert(Path::from(PathSegment {
+								ident: self.dyntrait.ident.clone(),
+								arguments: PathArguments::AngleBracketed(
+									AngleBracketedGenericArguments {
+										colon2_token: None,
+										lt_token: Default::default(),
+										gt_token: Default::default(),
+										args: generic_params_into_args(
+											self.dyntrait.generics.params.clone(),
+										)
+										.collect(),
+									},
+								),
+							}));
+
+							supertables
+						},
+						None => {
+							let mut supertables = HashSet::<Path>::new();
+							supertables.insert(Path::from(PathSegment {
+								ident: self.dyntrait.ident.clone(),
+								arguments: PathArguments::AngleBracketed(
+									AngleBracketedGenericArguments {
+										colon2_token: None,
+										lt_token: Default::default(),
+										gt_token: Default::default(),
+										args: generic_params_into_args(
+											self.dyntrait.generics.params.clone(),
+										)
+										.collect(),
+									},
+								),
+							}));
+
+							supertables
+						},
+					};
+
+					generics.params.extend(
+						[subtable_generic_ident.clone(), repr_generic_ident.clone()].map(|p| {
+							GenericParam::Type(TypeParam {
+								attrs: Vec::new(),
+								ident: p,
+								colon_token: None,
+								bounds: Punctuated::new(),
+								eq_token: None,
+								default: None,
+							})
+						}),
+					);
+
+					let where_clause = generics.where_clause.get_or_insert_with(|| WhereClause {
+						where_token: Default::default(),
+						predicates: Punctuated::new(),
+					});
+
+					where_clause
+						.predicates
+						.push(WherePredicate::Type(PredicateType {
+							lifetimes: None,
+							bounded_ty: Type::Path(TypePath {
+								qself: None,
+								path: Path::from(subtable_generic_ident.clone()),
+							}),
+							colon_token: Default::default(),
+							bounds: subtable_paths
+								.into_iter()
+								.map(|path| {
+									TypeParamBound::Trait(TraitBound {
+										paren_token: None,
+										modifier: TraitBoundModifier::None,
+										lifetimes: None,
+										path: Path {
+											leading_colon: Some(Default::default()),
+											segments: {
+												let mut segments = ["dyntable", "SubTable"]
+													.map(|p| {
+														PathSegment::from(Ident::new(
+															p,
+															Span::call_site(),
+														))
+													})
+													.into_iter()
+													.collect::<Punctuated<PathSegment, _>>();
+
+												let last = segments.last_mut().unwrap();
+												last.arguments = PathArguments::AngleBracketed(
+													AngleBracketedGenericArguments {
+														colon2_token: None,
+														lt_token: Default::default(),
+														gt_token: Default::default(),
+														args: [GenericArgument::Type(vtable_path(
+															path,
+														))]
+														.into_iter()
+														.collect(),
+													},
+												);
+
+												segments
+											},
+										},
+									})
+								})
+								.collect(),
+						}));
+
+					where_clause
+						.predicates
+						.push(WherePredicate::Type(PredicateType {
+							lifetimes: None,
+							bounded_ty: Type::Path(TypePath {
+								qself: None,
+								path: Path::from(repr_generic_ident.clone()),
+							}),
+							colon_token: Default::default(),
+							bounds: [TypeParamBound::Trait(TraitBound {
+								paren_token: None,
+								modifier: TraitBoundModifier::None,
+								lifetimes: None,
+								path: Path {
+									leading_colon: Some(Default::default()),
+									segments: {
+										let mut segments = ["dyntable", "VTableRepr"]
+											.map(|p| {
+												PathSegment::from(Ident::new(p, Span::call_site()))
+											})
+											.into_iter()
+											.collect::<Punctuated<PathSegment, _>>();
+
+										let last = segments.last_mut().unwrap();
+										last.arguments = PathArguments::AngleBracketed(
+											AngleBracketedGenericArguments {
+												colon2_token: None,
+												lt_token: Default::default(),
+												gt_token: Default::default(),
+												args: [GenericArgument::Binding(Binding {
+													ident: Ident::new("VTable", Span::call_site()),
+													eq_token: Default::default(),
+													ty: Type::Path(TypePath {
+														qself: None,
+														path: Path::from(subtable_generic_ident),
+													}),
+												})]
+												.into_iter()
+												.collect(),
+											},
+										);
+
+										segments
+									},
+								},
+							})]
+							.into_iter()
+							.collect(),
+						}));
+
+					generics
+				},
+				trait_: Some((
+					None,
+					Path::from(PathSegment {
+						ident: self.dyntrait.ident.clone(),
+						arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+							colon2_token: None,
+							lt_token: Default::default(),
+							gt_token: Default::default(),
+							args: generic_params_into_args(self.dyntrait.generics.params.clone())
+								.collect(),
+						}),
+					}),
+					<Token![for]>::default(),
+				)),
+				self_ty: Box::new(Type::Path(TypePath {
+					qself: None,
+					path: Path {
+						leading_colon: Some(Default::default()),
+						segments: {
+							let mut segments = ["dyntable", "Dyn"]
+								.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
+								.into_iter()
+								.collect::<Punctuated<PathSegment, _>>();
+
+							let last = segments.last_mut().unwrap();
+							last.arguments =
+								PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+									colon2_token: None,
+									lt_token: Default::default(),
+									gt_token: Default::default(),
+									args: [GenericArgument::Type(Type::Path(TypePath {
+										qself: None,
+										path: Path::from(repr_generic_ident),
+									}))]
+									.into_iter()
+									.collect(),
+								});
+
+							segments
+						},
+					},
+				})),
+				brace_token: Default::default(),
+				items: self
+					.dyntrait
+					.items
+					.into_iter()
+					.map(|item| match item {
+						TraitItem::Method(method) => ImplItem::Method(ImplItemMethod {
+							attrs: Vec::new(),
+							vis: Visibility::Inherited,
+							defaultness: None,
+							sig: method.sig.clone(),
+							block: Block {
+								brace_token: Default::default(),
+								stmts: vec![Stmt::Expr(Expr::Unsafe(ExprUnsafe {
+									attrs: Vec::new(),
+									unsafe_token: Default::default(),
+									block: Block {
+										brace_token: Default::default(),
+										stmts: vec![Stmt::Expr(Expr::Call(ExprCall {
+											attrs: Vec::new(),
+											paren_token: Default::default(),
+											func: Box::new(Expr::Paren(ExprParen {
+												attrs: Vec::new(),
+												paren_token: Default::default(),
+												expr: Box::new(Expr::Field(ExprField {
+													attrs: Vec::new(),
+													dot_token: Default::default(),
+													base: Box::new(Expr::Call(ExprCall {
+														attrs: Vec::new(),
+														paren_token: Default::default(),
+														func: Box::new(Expr::Path(ExprPath {
+															attrs: Vec::new(),
+															qself: None,
+															path: Path {
+																leading_colon: Some(
+																	Default::default(),
+																),
+																segments: {
+																	let mut segments = [
+																		"dyntable", "SubTable",
+																		"subtable",
+																	]
+																	.map(|p| {
+																		PathSegment::from(
+																			Ident::new(
+																				p,
+																				Span::call_site(),
+																			),
+																		)
+																	})
+																	.into_iter()
+																	.collect::<Punctuated<PathSegment, _>>(
+																	);
+
+																	let subtable_segment = segments
+																		.iter_mut()
+																		.skip(1)
+																		.next()
+																		.unwrap();
+
+																	subtable_segment.arguments = PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+																		colon2_token: Some(Default::default()),
+																		lt_token: Default::default(),
+																		gt_token: Default::default(),
+																		args: [GenericArgument::Type(vtable_path(
+																			Path::from(PathSegment {
+																				ident: self.dyntrait.ident.clone(),
+																				arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+																					colon2_token: None,
+																					lt_token: Default::default(),
+																					gt_token: Default::default(),
+																					args: generic_params_into_args(self.dyntrait.generics.params.clone()).collect(),
+																				}),
+																			})))].into_iter().collect(),
+																	});
+
+																	segments
+																},
+															},
+														})),
+														args: [Expr::Reference(ExprReference {
+															attrs: Vec::new(),
+															and_token: Default::default(),
+															raw: Default::default(),
+															mutability: None,
+															expr: Box::new(Expr::Unary(ExprUnary {
+																attrs: Vec::new(),
+																op: UnOp::Deref(Default::default()),
+																expr: Box::new(Expr::Field(ExprField {
+																	attrs: Vec::new(),
+																	dot_token: Default::default(),
+																	base: Box::new(Expr::Path(ExprPath {
+																		attrs: Vec::new(),
+																		qself: None,
+																		path: Path::from(Ident::new("self", Span::call_site())),
+																	})),
+																	member: Member::Named(Ident::new("vtable", Span::call_site())),
+																}))
+															}))
+														})].into_iter().collect()
+													})),
+													member: Member::Named(method.sig.ident)
+												})),
+											})),
+											args: method.sig.inputs.into_iter()
+												.map(|arg| match arg {
+													FnArg::Receiver(_) => {
+														Expr::Field(ExprField {
+															attrs: Vec::new(),
+															dot_token: Default::default(),
+															base: Box::new(Expr::Path(ExprPath {
+																attrs: Vec::new(),
+																qself: None,
+																path: Path::from(Ident::new("self", Span::call_site())),
+															})),
+															member: Member::Named(Ident::new("dynptr", Span::call_site())),
+														})
+													},
+													FnArg::Typed(PatType {
+														pat,
+														..
+													}) => {
+														// I am not dealing with this
+														Expr::Verbatim(pat.to_token_stream())
+													},
+												}).collect(),
+										}))],
+									},
+								}))],
+							},
+						}),
+						_ => unreachable!(), // already made sure this can't happen in build_vtable
+					})
+					.collect(),
 			})
 		}
 	}
