@@ -11,12 +11,6 @@ pub unsafe trait DynTable<V: VTable> {
 	const STATIC_VTABLE: &'static V;
 }
 
-/// Marker for dyntable traits that can be dropped
-pub unsafe trait DynDropTable<D: DropTable>: DynTable<D::VTable> {
-	/// The underlying DropTable for the type this trait is applied to
-	const DROPTABLE: &'static D;
-}
-
 /// Marker trait for structs that are VTables
 pub unsafe trait VTable: 'static {}
 
@@ -25,11 +19,9 @@ pub unsafe trait VTable: 'static {}
 /// Only nessesary for the outermost nested vtable.
 /// Embedded vtables do not need to, and probably should not
 /// implement this trait.
-pub unsafe trait DropTable: 'static {
-	type VTable: VTable;
-
+pub unsafe trait DropTable: VTable {
 	/// Drop and deallocate a dyntable
-	unsafe fn virtual_drop(&self, vtable: *const Self::VTable, instance: *mut c_void);
+	unsafe fn virtual_drop(&self, instance: *mut c_void);
 }
 
 /// Trait used to retrieve an embedded VTable inside another VTable
@@ -46,11 +38,6 @@ impl<V: VTable> SubTable<V> for V {
 /// Marker for representations of VTables to use in generics
 pub trait VTableRepr {
 	type VTable: VTable;
-}
-
-/// Marker for representations of DropTables to use in generics
-pub trait DropTableRepr: VTableRepr {
-	type DropTable: DropTable<VTable = Self::VTable>;
 }
 
 /// FFI safe wide pointer.
@@ -76,9 +63,12 @@ pub struct DynRefMut<'a, V: VTableRepr + ?Sized> {
 
 /// FFI Safe Box<dyn Trait>
 #[repr(C)]
-pub struct DynBox<V: DropTableRepr + ?Sized> {
+pub struct DynBox<V>
+where
+	V: VTableRepr + ?Sized,
+	V::VTable: DropTable,
+{
 	r#dyn: Dyn<V>,
-	droptable: *const V::DropTable,
 }
 
 impl<V: VTableRepr + ?Sized> Deref for DynRef<'_, V> {
@@ -103,7 +93,11 @@ impl<V: VTableRepr + ?Sized> DerefMut for DynRefMut<'_, V> {
 	}
 }
 
-impl<V: DropTableRepr + ?Sized> Deref for DynBox<V> {
+impl<V> Deref for DynBox<V>
+where
+	V: VTableRepr + ?Sized,
+	V::VTable: DropTable,
+{
 	type Target = Dyn<V>;
 
 	fn deref(&self) -> &Self::Target {
@@ -111,20 +105,27 @@ impl<V: DropTableRepr + ?Sized> Deref for DynBox<V> {
 	}
 }
 
-impl<V: DropTableRepr + ?Sized> DerefMut for DynBox<V> {
+impl<V> DerefMut for DynBox<V>
+where
+	V: VTableRepr + ?Sized,
+	V::VTable: DropTable,
+{
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		&mut self.r#dyn
 	}
 }
 
-impl<V: DropTableRepr + ?Sized> DynBox<V> {
-	pub fn new<T: DynDropTable<V::DropTable>>(data: T) -> Self {
+impl<V> DynBox<V>
+where
+	V: VTableRepr + ?Sized,
+	V::VTable: DropTable,
+{
+	pub fn new<T: DynTable<V::VTable>>(data: T) -> Self {
 		Self {
 			r#dyn: Dyn {
 				vtable: T::STATIC_VTABLE,
 				dynptr: Box::into_raw(Box::new(data)) as *mut c_void,
-			},
-			droptable: T::DROPTABLE,
+			}
 		}
 	}
 
@@ -143,10 +144,14 @@ impl<V: DropTableRepr + ?Sized> DynBox<V> {
 	}
 }
 
-impl<V: DropTableRepr + ?Sized> Drop for DynBox<V> {
+impl<V> Drop for DynBox<V>
+where
+	V: VTableRepr + ?Sized,
+	V::VTable: DropTable,
+{
 	fn drop(&mut self) {
 		unsafe {
-			(*self.droptable).virtual_drop(self.vtable, self.dynptr);
+			(*self.r#dyn.vtable).virtual_drop(self.dynptr);
 		}
 	}
 }
@@ -161,10 +166,8 @@ mod test {
 
 	use crate::{
 		DropTable,
-		DropTableRepr,
 		Dyn,
 		DynBox,
-		DynDropTable,
 		DynTable,
 		SubTable,
 		VTable,
@@ -186,41 +189,55 @@ mod test {
 	}
 
 	struct IncrementableVTable<T: Add + 'static> {
+		drop: unsafe extern "C" fn(*mut c_void),
 		increment: fn(*mut c_void, *const T),
 	}
 
 	struct DecrementableVTable<T: Sub + 'static> {
+		drop: unsafe extern "C" fn(*mut c_void),
 		decrement: fn(*mut c_void, T),
 	}
 
 	struct IncDecVTable<T: Add + Sub + 'static> {
+		drop: unsafe extern "C" fn(*mut c_void),
 		increment_vtable: IncrementableVTable<T>,
 		decrement_vtable: DecrementableVTable<T>,
 	}
 
 	struct GetVTable<T: Add + Sub + 'static> {
+		drop: unsafe extern "C" fn(*mut c_void),
 		incdec_vtable: IncDecVTable<T>,
 		get: fn(*const c_void) -> T,
-	}
-
-	// Dropper for tests, will need individual tables in macro to account for ABIs
-	struct FnDropTable<V: VTable> {
-		drop: fn(*mut c_void),
-		_vt: PhantomData<V>,
-	}
-
-	unsafe impl<V: VTable> DropTable for FnDropTable<V> {
-		type VTable = V;
-
-		unsafe fn virtual_drop(&self, _vtable: *const Self::VTable, instance: *mut c_void) {
-			(self.drop)(instance);
-		}
 	}
 
 	unsafe impl<T: Add> VTable for IncrementableVTable<T> {}
 	unsafe impl<T: Sub> VTable for DecrementableVTable<T> {}
 	unsafe impl<T: Add + Sub> VTable for IncDecVTable<T> {}
 	unsafe impl<T: Add + Sub> VTable for GetVTable<T> {}
+
+	unsafe impl<T: Add> DropTable for IncrementableVTable<T> {
+		unsafe fn virtual_drop(&self, instance: *mut c_void) {
+			(self.drop)(instance)
+		}
+	}
+
+	unsafe impl<T: Sub> DropTable for DecrementableVTable<T> {
+		unsafe fn virtual_drop(&self, instance: *mut c_void) {
+			(self.drop)(instance)
+		}
+	}
+
+	unsafe impl<T: Add + Sub> DropTable for IncDecVTable<T> {
+		unsafe fn virtual_drop(&self, instance: *mut c_void) {
+			(self.drop)(instance)
+		}
+	}
+
+	unsafe impl<T: Add + Sub> DropTable for GetVTable<T> {
+		unsafe fn virtual_drop(&self, instance: *mut c_void) {
+			(self.drop)(instance)
+		}
+	}
 
 	impl<'lt, T: Add + Sub>
 		SubTable<<(dyn Incrementable<'static, T> + 'static) as VTableRepr>::VTable> for IncDecVTable<T>
@@ -262,9 +279,15 @@ mod test {
 		}
 	}
 
+	unsafe extern "C" fn c_drop<D>(ptr: *mut c_void) {
+		std::ptr::drop_in_place(ptr);
+		std::alloc::dealloc(ptr as *mut u8, std::alloc::Layout::new::<D>());
+	}
+
 	unsafe impl<'lt, T: Add, D: Incrementable<'lt, T>> DynTable<IncrementableVTable<T>> for D {
 		const STATIC_VTABLE: &'static IncrementableVTable<T> = &Self::VTABLE;
 		const VTABLE: IncrementableVTable<T> = IncrementableVTable {
+			drop: c_drop::<D>,
 			increment: unsafe { std::mem::transmute(D::increment as fn(_, _)) },
 		};
 	}
@@ -272,6 +295,7 @@ mod test {
 	unsafe impl<T: Sub, D: Decrementable<T>> DynTable<DecrementableVTable<T>> for D {
 		const STATIC_VTABLE: &'static DecrementableVTable<T> = &Self::VTABLE;
 		const VTABLE: DecrementableVTable<T> = DecrementableVTable {
+			drop: c_drop::<D>,
 			decrement: unsafe { std::mem::transmute(D::decrement as fn(_, _)) },
 		};
 	}
@@ -279,6 +303,7 @@ mod test {
 	unsafe impl<'lt, T: Add + Sub, D: IncDec<'lt, T>> DynTable<IncDecVTable<T>> for D {
 		const STATIC_VTABLE: &'static IncDecVTable<T> = &Self::VTABLE;
 		const VTABLE: IncDecVTable<T> = IncDecVTable {
+			drop: c_drop::<D>,
 			increment_vtable: <D as DynTable<<dyn Incrementable<T> as VTableRepr>::VTable>>::VTABLE,
 			decrement_vtable: <D as DynTable<<dyn Decrementable<T> as VTableRepr>::VTable>>::VTABLE,
 		};
@@ -287,18 +312,9 @@ mod test {
 	unsafe impl<'lt, T: Add + Sub, D: Get<'lt, T>> DynTable<GetVTable<T>> for D {
 		const STATIC_VTABLE: &'static GetVTable<T> = &Self::VTABLE;
 		const VTABLE: GetVTable<T> = GetVTable {
+			drop: c_drop::<D>,
 			incdec_vtable: <D as DynTable<<dyn IncDec<T> as VTableRepr>::VTable>>::VTABLE,
 			get: unsafe { std::mem::transmute(D::get as fn(_) -> _) },
-		};
-	}
-
-	unsafe impl<V: VTable, D: DynTable<V>> DynDropTable<FnDropTable<V>> for D {
-		const DROPTABLE: &'static FnDropTable<V> = &FnDropTable {
-			drop: |ptr| unsafe {
-				std::ptr::drop_in_place(ptr as *mut D);
-				std::alloc::dealloc(ptr as *mut u8, std::alloc::Layout::new::<D>());
-			},
-			_vt: PhantomData,
 		};
 	}
 
@@ -316,22 +332,6 @@ mod test {
 
 	impl<'lt, T: Add + Sub + 'static> VTableRepr for dyn Get<'lt, T> {
 		type VTable = GetVTable<T>;
-	}
-
-	impl<'lt, T: Add + 'static> DropTableRepr for dyn Incrementable<'lt, T> {
-		type DropTable = FnDropTable<IncrementableVTable<T>>;
-	}
-
-	impl<T: Sub + 'static> DropTableRepr for dyn Decrementable<T> {
-		type DropTable = FnDropTable<DecrementableVTable<T>>;
-	}
-
-	impl<'lt, T: Add + Sub + 'static> DropTableRepr for dyn IncDec<'lt, T> {
-		type DropTable = FnDropTable<IncDecVTable<T>>;
-	}
-
-	impl<'lt, T: Add + Sub + 'static> DropTableRepr for dyn Get<'lt, T> {
-		type DropTable = FnDropTable<GetVTable<T>>;
 	}
 
 	impl<'lt, T: Add + 'static, V, R> Incrementable<'lt, T> for Dyn<R>
