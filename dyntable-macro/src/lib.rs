@@ -1544,6 +1544,18 @@ mod process {
 										segments
 									},
 								},
+							}),
+							TypeParamBound::Trait(TraitBound {
+								paren_token: None,
+								modifier: TraitBoundModifier::Maybe(Default::default()),
+								lifetimes: None,
+								path: Path {
+									leading_colon: Some(Default::default()),
+									segments: ["core", "marker", "Sized"]
+										.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
+										.into_iter()
+										.collect(),
+								}
 							})]
 							.into_iter()
 							.collect(),
