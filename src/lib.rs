@@ -144,6 +144,22 @@ where
 	}
 }
 
+impl<T, V> From<Box<T>> for DynBox<V>
+where
+	T: DynTable<V::VTable>,
+	V: VTableRepr + ?Sized,
+	V::VTable: DropTable,
+{
+	fn from(value: Box<T>) -> Self {
+		Self {
+			r#dyn: Dyn {
+				vtable: T::STATIC_VTABLE,
+				dynptr: Box::into_raw(value) as *mut c_void,
+			}
+		}
+	}
+}
+
 impl<V> Drop for DynBox<V>
 where
 	V: VTableRepr + ?Sized,
@@ -415,5 +431,11 @@ mod test {
 		dynbox.decrement(22);
 
 		println!("Num: {}", dynbox.get());
+
+		let normbox = Box::new(NumberHolder { num: 42 });
+		let mut dynbox2 = DynBox::<dyn Get<'_, i32>>::from(normbox);
+
+		dynbox2.increment(&2);
+		println!("Num {}", dynbox2.get());
 	}
 }
