@@ -16,9 +16,8 @@ pub unsafe trait VTable: 'static {}
 
 /// Trait used to drop objects behind a dyntable.
 ///
-/// Only nessesary for the outermost nested vtable.
-/// Embedded vtables do not need to, and probably should not
-/// implement this trait.
+/// Only nessesary for the outermost nested vtable,
+/// enables using it in a DynBox.
 pub unsafe trait DropTable: VTable {
 	/// Drop and deallocate a dyntable
 	unsafe fn virtual_drop(&self, instance: *mut c_void);
@@ -125,7 +124,7 @@ where
 			r#dyn: Dyn {
 				vtable: T::STATIC_VTABLE,
 				dynptr: Box::into_raw(Box::new(data)) as *mut c_void,
-			}
+			},
 		}
 	}
 
@@ -155,7 +154,7 @@ where
 			r#dyn: Dyn {
 				vtable: T::STATIC_VTABLE,
 				dynptr: Box::into_raw(value) as *mut c_void,
-			}
+			},
 		}
 	}
 }
@@ -176,19 +175,10 @@ where
 mod test {
 	use std::{
 		ffi::c_void,
-		marker::PhantomData,
 		ops::{Add, Sub},
 	};
 
-	use crate::{
-		DropTable,
-		Dyn,
-		DynBox,
-		DynTable,
-		SubTable,
-		VTable,
-		VTableRepr,
-	};
+	use crate::{DropTable, Dyn, DynBox, DynTable, SubTable, VTable, VTableRepr};
 
 	trait Incrementable<'lt, T: Add> {
 		fn increment(&mut self, amount: &'lt T);

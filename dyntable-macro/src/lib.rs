@@ -4,6 +4,8 @@ use process::DynTable;
 use quote::ToTokens;
 use syn::parse_macro_input;
 
+use crate::parse::AttrConf;
+
 //mod lib_old;
 
 #[proc_macro_attribute]
@@ -14,14 +16,15 @@ pub fn dyntable(
 	use syn::Ident;
 
 	let dyn_trait = parse_macro_input!(item as DynTrait);
+	let attrconf = parse_macro_input!(attr as AttrConf);
 	let dyntable = DynTable {
 		vtable_ident: Ident::new(
 			&format!("{}VTable", dyn_trait.ident),
 			dyn_trait.ident.span(),
 		),
 		dyntrait: dyn_trait,
+		conf: attrconf,
 		//vtable_repr: None,
-		default_abi: None,
 	};
 	let r = (|| -> syn::Result<TokenStream> {
 		let mut token_stream = TokenStream::new();
@@ -49,6 +52,13 @@ pub fn dyntable(
 			.clone()
 			.impl_dyntable()?
 			.to_tokens(&mut token_stream);
+		if let Some(func) = dyntable.clone().impl_dyn_drop() {
+			func.to_tokens(&mut token_stream);
+		}
+		dyntable
+			.clone()
+			.impl_droptable()
+			.to_tokens(&mut token_stream);
 		dyntable
 			.clone()
 			.impl_trait_for_dyn()?
@@ -74,7 +84,6 @@ mod process {
 	use syn::{
 		punctuated::Punctuated,
 		spanned::Spanned,
-		Abi,
 		AngleBracketedGenericArguments,
 		BareFnArg,
 		Binding,
@@ -104,10 +113,14 @@ mod process {
 		ImplItemConst,
 		ImplItemMethod,
 		ImplItemType,
+		ItemFn,
 		ItemImpl,
 		ItemStruct,
 		Lifetime,
 		Member,
+		Pat,
+		PatIdent,
+		PatPath,
 		PatType,
 		Path,
 		PathArguments,
@@ -140,14 +153,20 @@ mod process {
 		WherePredicate,
 	};
 
-	use crate::parse::{DynTrait, DynWhereClause, DynWherePredicate, DynWherePredicateSupertrait};
+	use crate::parse::{
+		AttrConf,
+		DynTrait,
+		DynWhereClause,
+		DynWherePredicate,
+		DynWherePredicateSupertrait,
+	};
 
 	#[derive(Debug, Clone)]
 	pub struct DynTable {
 		pub dyntrait: DynTrait,
+		pub conf: AttrConf,
 		pub vtable_ident: Ident,
 		//vtable_repr: Attribute,
-		pub default_abi: Option<Abi>,
 	}
 
 	#[derive(Debug)]
@@ -464,12 +483,12 @@ mod process {
 									))
 								}
 
-								let abi = match abi.or_else(|| self.default_abi.clone()) {
+								let abi = match abi.or_else(|| self.conf.abi.clone()) {
 									Some(abi) => abi,
 									None => {
 										return Err(syn::Error::new(
 											method_span,
-											"method must explictly declare its ABI",
+											"method must explicitly declare its ABI",
 										))
 									},
 								};
@@ -580,6 +599,50 @@ mod process {
 							},
 							_ => return Err(syn::Error::new(item.span(), "unknown trait item")),
 						}
+					}
+
+					if let Some(drop_abi) = self.conf.drop_abi {
+						fields.push(Field {
+							attrs: Vec::new(),
+							vis: Visibility::Inherited,
+							ident: Some(Ident::new("__drop", Span::call_site())),
+							colon_token: Default::default(),
+							ty: Type::BareFn(TypeBareFn {
+								lifetimes: None,
+								unsafety: Some(Default::default()),
+								abi: Some(drop_abi),
+								fn_token: Default::default(),
+								paren_token: Default::default(),
+								inputs: [BareFnArg {
+									attrs: Vec::new(),
+									name: None,
+									ty: Type::Ptr(TypePtr {
+										star_token: Default::default(),
+										const_token: None,
+										mutability: Some(Default::default()),
+										elem: Box::new(Type::Path(TypePath {
+											qself: None,
+											path: Path {
+												leading_colon: Some(Default::default()),
+												segments: ["core", "ffi", "c_void"]
+													.map(|p| {
+														PathSegment::from(Ident::new(
+															p,
+															Span::call_site(),
+														))
+													})
+													.into_iter()
+													.collect(),
+											},
+										})),
+									}),
+								}]
+								.into_iter()
+								.collect(),
+								variadic: None,
+								output: ReturnType::Default,
+							}),
+						});
 					}
 
 					fields.push(Field {
@@ -1058,7 +1121,7 @@ mod process {
 							modifier: TraitBoundModifier::None,
 							lifetimes: None,
 							path: Path::from(PathSegment {
-								ident: self.dyntrait.ident,
+								ident: self.dyntrait.ident.clone(),
 								arguments: PathArguments::AngleBracketed(
 									AngleBracketedGenericArguments {
 										colon2_token: None,
@@ -1248,7 +1311,7 @@ mod process {
 										} = method.sig;
 
 										// checked in build_vtable
-										let abi = abi.or_else(|| self.default_abi.clone()).unwrap();
+										let abi = abi.or_else(|| self.conf.abi.clone()).unwrap();
 
 										fields.push(FieldValue {
 											attrs: Vec::new(),
@@ -1327,6 +1390,42 @@ mod process {
 
 								fields.push(FieldValue {
 									attrs: Vec::new(),
+									member: Member::Named(Ident::new("__drop", Span::call_site())),
+									colon_token: Some(Default::default()),
+									expr: Expr::Path(ExprPath {
+										attrs: Vec::new(),
+										qself: None,
+										path: Path {
+											leading_colon: None,
+											segments: [PathSegment {
+												ident: Ident::new(
+													&format!("__{}_drop", self.dyntrait.ident),
+													Span::call_site(),
+												),
+												arguments: PathArguments::AngleBracketed(
+													AngleBracketedGenericArguments {
+														colon2_token: Some(Default::default()),
+														lt_token: Default::default(),
+														gt_token: Default::default(),
+														args: [GenericArgument::Type(Type::Path(
+															TypePath {
+																qself: None,
+																path: Path::from(impl_target_ident),
+															},
+														))]
+														.into_iter()
+														.collect(),
+													},
+												),
+											}]
+											.into_iter()
+											.collect(),
+										},
+									}),
+								});
+
+								fields.push(FieldValue {
+									attrs: Vec::new(),
 									member: Member::Named(Ident::new(
 										"__generics",
 										Span::call_site(),
@@ -1358,6 +1457,328 @@ mod process {
 					}),
 				],
 			})
+		}
+
+		pub fn impl_dyn_drop(self) -> Option<ItemFn> {
+			self.conf.drop_abi.map(|drop_abi| ItemFn {
+				attrs: Vec::new(),
+				vis: Visibility::Inherited,
+				sig: Signature {
+					constness: None,
+					asyncness: None,
+					unsafety: Some(Default::default()),
+					abi: Some(drop_abi),
+					fn_token: Default::default(),
+					ident: Ident::new(
+						&format!("__{}_drop", self.dyntrait.ident),
+						Span::call_site(),
+					),
+					generics: Generics {
+						lt_token: Default::default(),
+						gt_token: Default::default(),
+						params: [GenericParam::Type(TypeParam {
+							attrs: Vec::new(),
+							ident: Ident::new("T", Span::call_site()),
+							colon_token: None,
+							bounds: Punctuated::new(),
+							eq_token: None,
+							default: None,
+						})]
+						.into_iter()
+						.collect(),
+						where_clause: None,
+					},
+					paren_token: Default::default(),
+					inputs: [FnArg::Typed(PatType {
+						attrs: Vec::new(),
+						pat: Box::new(Pat::Ident(PatIdent {
+							attrs: Vec::new(),
+							by_ref: None,
+							mutability: None,
+							ident: Ident::new("ptr", Span::call_site()),
+							subpat: None,
+						})),
+						colon_token: Default::default(),
+						ty: Box::new(Type::Ptr(TypePtr {
+							star_token: Default::default(),
+							const_token: None,
+							mutability: Some(Default::default()),
+							elem: Box::new(Type::Path(TypePath {
+								qself: None,
+								path: Path {
+									leading_colon: Some(Default::default()),
+									segments: ["core", "ffi", "c_void"]
+										.map(|p| {
+											PathSegment::from(Ident::new(p, Span::call_site()))
+										})
+										.into_iter()
+										.collect(),
+								},
+							})),
+						})),
+					})]
+					.into_iter()
+					.collect(),
+					variadic: None,
+					output: ReturnType::Default,
+				},
+				block: Box::new(Block {
+					brace_token: Default::default(),
+					stmts: vec![
+						Stmt::Semi(
+							Expr::Call(ExprCall {
+								attrs: Vec::new(),
+								paren_token: Default::default(),
+								func: Box::new(Expr::Path(ExprPath {
+									attrs: Vec::new(),
+									qself: None,
+									path: Path {
+										leading_colon: Some(Default::default()),
+										segments: ["core", "ptr", "drop_in_place"]
+											.map(|p| {
+												PathSegment::from(Ident::new(p, Span::call_site()))
+											})
+											.into_iter()
+											.collect(),
+									},
+								})),
+								args: [Expr::Path(ExprPath {
+									attrs: Vec::new(),
+									qself: None,
+									path: Path::from(Ident::new("ptr", Span::call_site())),
+								})]
+								.into_iter()
+								.collect(),
+							}),
+							<Token![;]>::default(),
+						),
+						Stmt::Semi(
+							Expr::Call(ExprCall {
+								attrs: Vec::new(),
+								paren_token: Default::default(),
+								func: Box::new(Expr::Path(ExprPath {
+									attrs: Vec::new(),
+									qself: None,
+									path: Path {
+										leading_colon: Some(Default::default()),
+										segments: ["std", "alloc", "dealloc"]
+											.map(|p| {
+												PathSegment::from(Ident::new(p, Span::call_site()))
+											})
+											.into_iter()
+											.collect(),
+									},
+								})),
+								args: [
+									Expr::Cast(ExprCast {
+										attrs: Vec::new(),
+										as_token: Default::default(),
+										expr: Box::new(Expr::Path(ExprPath {
+											attrs: Vec::new(),
+											qself: None,
+											path: Path::from(Ident::new("ptr", Span::call_site())),
+										})),
+										ty: Box::new(Type::Ptr(TypePtr {
+											star_token: Default::default(),
+											const_token: None,
+											mutability: Some(Default::default()),
+											elem: Box::new(Type::Path(TypePath {
+												qself: None,
+												path: Path::from(Ident::new(
+													"u8",
+													Span::call_site(),
+												)),
+											})),
+										})),
+									}),
+									Expr::Call(ExprCall {
+										attrs: Vec::new(),
+										paren_token: Default::default(),
+										func: Box::new(Expr::Path(ExprPath {
+											attrs: Vec::new(),
+											qself: None,
+											path: Path {
+												leading_colon: Some(Default::default()),
+												segments: {
+													let mut segments =
+														["core", "alloc", "Layout", "new"]
+															.map(|p| {
+																PathSegment::from(Ident::new(
+																	p,
+																	Span::call_site(),
+																))
+															})
+															.into_iter()
+															.collect::<Punctuated<PathSegment, _>>(
+															);
+
+													let last = segments.last_mut().unwrap();
+													last.arguments = PathArguments::AngleBracketed(
+														AngleBracketedGenericArguments {
+															colon2_token: Some(Default::default()),
+															lt_token: Default::default(),
+															gt_token: Default::default(),
+															args: [GenericArgument::Type(
+																Type::Path(TypePath {
+																	qself: None,
+																	path: Path::from(Ident::new(
+																		"T",
+																		Span::call_site(),
+																	)),
+																}),
+															)]
+															.into_iter()
+															.collect(),
+														},
+													);
+
+													segments
+												},
+											},
+										})),
+										args: Punctuated::new(),
+									}),
+								]
+								.into_iter()
+								.collect(),
+							}),
+							<Token![;]>::default(),
+						),
+					],
+				}),
+			})
+		}
+
+		pub fn impl_droptable(self) -> ItemImpl {
+			let vtable_generics = {
+				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
+				generics.params =
+					into_vtable_generics(std::mem::take(&mut generics.params)).collect();
+
+				generics
+			};
+
+			ItemImpl {
+				attrs: Vec::new(),
+				defaultness: None,
+				unsafety: Some(Default::default()),
+				impl_token: Default::default(),
+				trait_: Some((
+					None,
+					Path {
+						leading_colon: Some(Default::default()),
+						segments: ["dyntable", "DropTable"]
+							.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
+							.into_iter()
+							.collect(),
+					},
+					<Token![for]>::default(),
+				)),
+				self_ty: Box::new(Type::Path(TypePath {
+					qself: None,
+					path: Path::from(PathSegment {
+						ident: self.vtable_ident,
+						arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+							colon2_token: None,
+							lt_token: Default::default(),
+							gt_token: Default::default(),
+							args: generic_params_into_args(vtable_generics.params.clone())
+								.collect(),
+						}),
+					}),
+				})),
+				generics: vtable_generics,
+				brace_token: Default::default(),
+				items: vec![ImplItem::Method(ImplItemMethod {
+					attrs: Vec::new(),
+					vis: Visibility::Inherited,
+					defaultness: None,
+					sig: Signature {
+						constness: None,
+						asyncness: None,
+						unsafety: Some(Default::default()),
+						abi: None,
+						fn_token: Default::default(),
+						ident: Ident::new("virtual_drop", Span::call_site()),
+						generics: Generics {
+							lt_token: None,
+							gt_token: None,
+							params: Punctuated::new(),
+							where_clause: None,
+						},
+						paren_token: Default::default(),
+						inputs: [
+							FnArg::Receiver(Receiver {
+								attrs: Vec::new(),
+								reference: Some((<Token![&]>::default(), None)),
+								mutability: None,
+								self_token: Default::default(),
+							}),
+							FnArg::Typed(PatType {
+								attrs: Vec::new(),
+								pat: Box::new(Pat::Path(PatPath {
+									attrs: Vec::new(),
+									qself: None,
+									path: Path::from(Ident::new("instance", Span::call_site())),
+								})),
+								colon_token: Default::default(),
+								ty: Box::new(Type::Ptr(TypePtr {
+									star_token: Default::default(),
+									const_token: None,
+									mutability: Some(Default::default()),
+									elem: Box::new(Type::Path(TypePath {
+										qself: None,
+										path: Path {
+											leading_colon: Some(Default::default()),
+											segments: ["core", "ffi", "c_void"]
+												.map(|p| {
+													PathSegment::from(Ident::new(
+														p,
+														Span::call_site(),
+													))
+												})
+												.into_iter()
+												.collect(),
+										},
+									})),
+								})),
+							}),
+						]
+						.into_iter()
+						.collect(),
+						variadic: None,
+						output: ReturnType::Default,
+					},
+					block: Block {
+						brace_token: Default::default(),
+						stmts: vec![Stmt::Expr(Expr::Call(ExprCall {
+							attrs: Vec::new(),
+							paren_token: Default::default(),
+							func: Box::new(Expr::Paren(ExprParen {
+								attrs: Vec::new(),
+								paren_token: Default::default(),
+								expr: Box::new(Expr::Field(ExprField {
+									attrs: Vec::new(),
+									dot_token: Default::default(),
+									base: Box::new(Expr::Path(ExprPath {
+										attrs: Vec::new(),
+										qself: None,
+										path: Path::from(Ident::new("self", Span::call_site())),
+									})),
+									member: Member::Named(Ident::new("__drop", Span::call_site())),
+								})),
+							})),
+							args: [Expr::Path(ExprPath {
+								attrs: Vec::new(),
+								qself: None,
+								path: Path::from(Ident::new("instance", Span::call_site())),
+							})]
+							.into_iter()
+							.collect(),
+						}))],
+					},
+				})],
+			}
 		}
 
 		pub fn impl_trait_for_dyn(self) -> syn::Result<ItemImpl> {
@@ -1508,55 +1929,67 @@ mod process {
 								path: Path::from(repr_generic_ident.clone()),
 							}),
 							colon_token: Default::default(),
-							bounds: [TypeParamBound::Trait(TraitBound {
-								paren_token: None,
-								modifier: TraitBoundModifier::None,
-								lifetimes: None,
-								path: Path {
-									leading_colon: Some(Default::default()),
-									segments: {
-										let mut segments = ["dyntable", "VTableRepr"]
+							bounds: [
+								TypeParamBound::Trait(TraitBound {
+									paren_token: None,
+									modifier: TraitBoundModifier::None,
+									lifetimes: None,
+									path: Path {
+										leading_colon: Some(Default::default()),
+										segments: {
+											let mut segments = ["dyntable", "VTableRepr"]
+												.map(|p| {
+													PathSegment::from(Ident::new(
+														p,
+														Span::call_site(),
+													))
+												})
+												.into_iter()
+												.collect::<Punctuated<PathSegment, _>>();
+
+											let last = segments.last_mut().unwrap();
+											last.arguments = PathArguments::AngleBracketed(
+												AngleBracketedGenericArguments {
+													colon2_token: None,
+													lt_token: Default::default(),
+													gt_token: Default::default(),
+													args: [GenericArgument::Binding(Binding {
+														ident: Ident::new(
+															"VTable",
+															Span::call_site(),
+														),
+														eq_token: Default::default(),
+														ty: Type::Path(TypePath {
+															qself: None,
+															path: Path::from(
+																subtable_generic_ident,
+															),
+														}),
+													})]
+													.into_iter()
+													.collect(),
+												},
+											);
+
+											segments
+										},
+									},
+								}),
+								TypeParamBound::Trait(TraitBound {
+									paren_token: None,
+									modifier: TraitBoundModifier::Maybe(Default::default()),
+									lifetimes: None,
+									path: Path {
+										leading_colon: Some(Default::default()),
+										segments: ["core", "marker", "Sized"]
 											.map(|p| {
 												PathSegment::from(Ident::new(p, Span::call_site()))
 											})
 											.into_iter()
-											.collect::<Punctuated<PathSegment, _>>();
-
-										let last = segments.last_mut().unwrap();
-										last.arguments = PathArguments::AngleBracketed(
-											AngleBracketedGenericArguments {
-												colon2_token: None,
-												lt_token: Default::default(),
-												gt_token: Default::default(),
-												args: [GenericArgument::Binding(Binding {
-													ident: Ident::new("VTable", Span::call_site()),
-													eq_token: Default::default(),
-													ty: Type::Path(TypePath {
-														qself: None,
-														path: Path::from(subtable_generic_ident),
-													}),
-												})]
-												.into_iter()
-												.collect(),
-											},
-										);
-
-										segments
+											.collect(),
 									},
-								},
-							}),
-							TypeParamBound::Trait(TraitBound {
-								paren_token: None,
-								modifier: TraitBoundModifier::Maybe(Default::default()),
-								lifetimes: None,
-								path: Path {
-									leading_colon: Some(Default::default()),
-									segments: ["core", "marker", "Sized"]
-										.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-										.into_iter()
-										.collect(),
-								}
-							})]
+								}),
+							]
 							.into_iter()
 							.collect(),
 						}));
@@ -1751,6 +2184,7 @@ mod parse {
 		parse::{Parse, ParseStream},
 		punctuated::Punctuated,
 		token::{self, Trait},
+		Abi,
 		Attribute,
 		ConstParam,
 		GenericParam,
@@ -1759,6 +2193,7 @@ mod parse {
 		ItemTrait,
 		Lifetime,
 		LifetimeDef,
+		LitStr,
 		Path,
 		PredicateEq,
 		PredicateLifetime,
@@ -1771,6 +2206,67 @@ mod parse {
 		WhereClause,
 		WherePredicate,
 	};
+
+	#[derive(Debug, Clone)]
+	pub struct AttrConf {
+		pub abi: Option<Abi>,
+		pub drop_abi: Option<Abi>,
+	}
+
+	impl Parse for AttrConf {
+		fn parse(input: ParseStream) -> syn::Result<Self> {
+			enum Option {
+				Abi(LitStr),
+				DropAbi(LitStr),
+			}
+
+			impl Parse for Option {
+				fn parse(input: ParseStream) -> syn::Result<Self> {
+					let ident = input.parse::<Ident>()?;
+					match &ident.to_string() as &str {
+						"abi" => {
+							let _ = input.parse::<Token![=]>()?;
+							Ok(Option::Abi(input.parse::<LitStr>()?))
+						},
+						"drop_abi" => {
+							let _ = input.parse::<Token![=]>()?;
+							Ok(Option::DropAbi(input.parse::<LitStr>()?))
+						},
+						_ => Err(syn::Error::new(
+							ident.span(),
+							&format!("Unknown option: {}", ident),
+						)),
+					}
+				}
+			}
+
+			let options = Punctuated::<Option, Token![,]>::parse_terminated(input)?;
+
+			let mut conf = AttrConf {
+				abi: None,
+				drop_abi: None,
+			};
+
+			for option in options {
+				match option {
+					Option::Abi(x) => {
+						conf.abi = Some(Abi {
+							extern_token: Default::default(),
+							name: Some(x),
+						})
+					},
+					Option::DropAbi(x) => {
+						conf.drop_abi = Some(Abi {
+							extern_token: Default::default(),
+							name: Some(x),
+						})
+					},
+				}
+			}
+
+			Ok(conf)
+		}
+	}
 
 	#[derive(Debug, Clone)]
 	pub struct DynTrait {
