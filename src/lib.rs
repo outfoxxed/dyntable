@@ -171,6 +171,92 @@ where
 	}
 }
 
+// fix the proc macro in tests
+extern crate self as dyntable;
+
+// testing the macro, not marked #[cfg(test)] so cargo expand works
+mod test_macro {
+	use std::{
+		ffi::c_void,
+		ops::{Add, Sub},
+	};
+
+	use dyntable_macro::dyntable;
+
+	use crate::DynBox;
+
+	struct NumberHolder {
+		num: i32,
+	}
+
+	#[dyntable(drop_abi = "C")]
+	trait Incrementable<'lt, T: Add> {
+		extern "C" fn increment(&mut self, amount: &'lt T);
+	}
+
+	#[dyntable(drop_abi = "C")]
+	trait Decrementable<T: Sub> {
+		extern "C" fn decrement(&mut self, amount: T);
+	}
+
+	#[dyntable(drop_abi = "C")]
+	trait IncDec<'lt, T: Add + Sub>: Incrementable<'lt, T> + Decrementable<T>
+	where
+		dyn Incrementable<'lt, T>:,
+		dyn Decrementable<T>:,
+	{
+	}
+
+	#[dyntable(drop_abi = "C")]
+	trait Get<'lt, T: Add + Sub>: IncDec<'lt, T>
+	where
+		dyn IncDec<'lt, T>: Incrementable<'lt, T> + Decrementable<T>,
+	{
+		extern "C" fn get(&self) -> T;
+	}
+
+	#[test]
+	fn test2() {
+		struct NumberRefHolder<'lt> {
+			num: &'lt mut i32,
+		}
+
+		impl Incrementable<'_, i32> for NumberRefHolder<'_> {
+			extern "C" fn increment(&mut self, amount: &i32) {
+				*self.num += amount;
+			}
+		}
+
+		impl Decrementable<i32> for NumberRefHolder<'_> {
+			extern "C" fn decrement(&mut self, amount: i32) {
+				*self.num -= amount;
+			}
+		}
+
+		impl IncDec<'_, i32> for NumberRefHolder<'_> {}
+
+		impl Get<'_, i32> for NumberRefHolder<'_> {
+			extern "C" fn get(&self) -> i32 {
+				*self.num
+			}
+		}
+
+		let mut val = 42;
+
+		let mut dynbox: DynBox<dyn Get<'_, i32>> = DynBox::new(NumberRefHolder { num: &mut val });
+
+		println!("Num: {}", dynbox.get());
+
+		dynbox.increment(&69);
+
+		println!("Num: {}", dynbox.get());
+
+		dynbox.decrement(22);
+
+		println!("Num: {}", dynbox.get());
+	}
+}
+
 #[cfg(test)]
 mod test {
 	use std::{
@@ -379,8 +465,9 @@ mod test {
 	{
 		fn get(&self) -> T {
 			unsafe {
-				let vtable: &<dyn Get<'lt, T> as VTableRepr>::VTable = (&*self.vtable).subtable();
-				(vtable.get)(self.dynptr)
+				(SubTable::<<dyn Get<'lt, T> as VTableRepr>::VTable>::subtable(&*self.vtable).get)(
+					self.dynptr,
+				)
 			}
 		}
 	}

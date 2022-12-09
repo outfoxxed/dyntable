@@ -2,3 +2,6 @@
 name = "dyntable"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies.dyntable-macro]
+path = "dyntable-macro"
