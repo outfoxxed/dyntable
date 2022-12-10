@@ -203,27 +203,49 @@ mod process {
 		}
 	}
 
+	macro_rules! path_arguments {
+		(<[]>) => {
+			PathArguments::None
+		};
+		(<[$($arg:expr),+]>) => {
+			path_arguments!(
+				[$($arg),+]
+					.into_iter()
+					.collect::<Punctuated<GenericArgument, _>>()
+			)
+		};
+		($args:expr) => {
+			PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+				colon2_token: Some(Default::default()),
+				lt_token: Default::default(),
+				gt_token: Default::default(),
+				args: $args,
+			})
+		};
+	}
+
 	macro_rules! path_segments {
-		($($segment:ident)::+) => {
-			[$(
-				PathSegment::from(Ident::new(stringify!($segment), Span::call_site()))
-			),+]
+		($($segment:ident $([$($arg:expr),+])?)::+) => {
+			[$(PathSegment {
+				ident: Ident::new(stringify!($segment), Span::call_site()),
+				arguments: path_arguments!(<[$($($arg),+)?]>),
+			}),+]
 				.into_iter()
 				.collect::<Punctuated<_, _>>()
 		}
 	}
 
 	macro_rules! path {
-		($($segment:ident)::+) => {
+		($($segment:ident $([$($arg:expr),+])?)::+) => {
 			Path {
 				leading_colon: None,
-				segments: path_segments!($($segment)::+),
+				segments: path_segments!($($segment $([$($arg),+])?)::+),
 			}
 		};
-		(::$($segment:ident)::+) => {
+		(::$($segment:ident $([$($arg:expr),+])?)::+) => {
 			Path {
 				leading_colon: Some(Default::default()),
-				segments: path_segments!($($segment)::+),
+				segments: path_segments!($($segment $([$($arg),+])?)::+),
 			}
 		};
 	}
@@ -685,16 +707,8 @@ mod process {
 									let mut punctuated = path_segments!(core::marker::PhantomData);
 
 									let last = punctuated.last_mut().unwrap();
-									last.arguments = PathArguments::AngleBracketed(
-										AngleBracketedGenericArguments {
-											colon2_token: Default::default(),
-											lt_token: Default::default(),
-											gt_token: Default::default(),
-											args: [GenericArgument::Type(phantom_type)]
-												.into_iter()
-												.collect(),
-										},
-									);
+									last.arguments =
+										path_arguments!(<[GenericArgument::Type(phantom_type)]>);
 
 									punctuated
 								},
@@ -730,13 +744,10 @@ mod process {
 					qself: None,
 					path: Path::from(PathSegment {
 						ident: self.vtable_ident,
-						arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-							colon2_token: None,
-							lt_token: Default::default(),
-							gt_token: Default::default(),
-							args: generic_params_into_args(vtable_generics.params.clone())
-								.collect(),
-						}),
+						arguments: path_arguments!(generic_params_into_args(
+							vtable_generics.params.clone()
+						)
+						.collect()),
 					}),
 				})),
 				generics: vtable_generics,
@@ -775,17 +786,10 @@ mod process {
 						lifetimes: None,
 						path: Path::from(PathSegment {
 							ident: self.dyntrait.ident,
-							arguments: PathArguments::AngleBracketed(
-								AngleBracketedGenericArguments {
-									colon2_token: None,
-									lt_token: Default::default(),
-									gt_token: Default::default(),
-									args: generic_params_into_args(
-										self.dyntrait.generics.clone().strip_dyntable().params,
-									)
-									.collect(),
-								},
-							),
+							arguments: path_arguments!(generic_params_into_args(
+								self.dyntrait.generics.clone().strip_dyntable().params
+							)
+							.collect()),
 						}),
 					})]
 					.into_iter()
@@ -809,17 +813,12 @@ mod process {
 						qself: None,
 						path: Path::from(PathSegment {
 							ident: self.vtable_ident,
-							arguments: PathArguments::AngleBracketed(
-								AngleBracketedGenericArguments {
-									colon2_token: Some(Default::default()),
-									lt_token: Default::default(),
-									gt_token: Default::default(),
-									args: generic_params_into_args(into_vtable_generics(
-										self.dyntrait.generics.strip_dyntable().params,
-									))
-									.collect(),
-								},
-							),
+							arguments: path_arguments!(generic_params_into_args(
+								into_vtable_generics(
+									self.dyntrait.generics.strip_dyntable().params
+								)
+							)
+							.collect()),
 						}),
 					}),
 					semi_token: Default::default(),
@@ -842,40 +841,17 @@ mod process {
 					impl_token: Default::default(),
 					trait_: Some((
 						None,
-						Path {
-							leading_colon: Some(Default::default()),
-							segments: {
-								let mut segments = path_segments!(dyntable::SubTable);
-
-								let last = segments.last_mut().unwrap();
-								last.arguments =
-									PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-										colon2_token: None,
-										lt_token: Default::default(),
-										gt_token: Default::default(),
-										args: [GenericArgument::Type(vtable_path.clone())]
-											.into_iter()
-											.collect(),
-									});
-
-								segments
-							},
-						},
+						path!(::dyntable::SubTable[GenericArgument::Type(vtable_path.clone())]),
 						<Token![for]>::default(),
 					)),
 					self_ty: Box::new(Type::Path(TypePath {
 						qself: None,
 						path: Path::from(PathSegment {
 							ident: vtable,
-							arguments: PathArguments::AngleBracketed(
-								AngleBracketedGenericArguments {
-									colon2_token: None,
-									lt_token: Default::default(),
-									gt_token: Default::default(),
-									args: generic_params_into_args(generics.params.clone())
-										.collect(),
-								},
-							),
+							arguments: path_arguments!(generic_params_into_args(
+								generics.params.clone()
+							)
+							.collect()),
 						}),
 					})),
 					generics,
@@ -955,7 +931,7 @@ mod process {
 									base: Box::new(Expr::Path(ExprPath {
 										attrs: Vec::new(),
 										qself: None,
-										path: Path::from(Ident::new("self", Span::call_site())),
+										path: path!(self),
 									})),
 									dot_token: Default::default(),
 									member: Member::Named(Ident::new(
@@ -985,42 +961,15 @@ mod process {
 										func: Box::new(Expr::Path(ExprPath {
 											attrs: Vec::new(),
 											qself: None,
-											path: Path {
-												leading_colon: Default::default(),
-												segments: {
-													let mut segments = path_segments!(
-														dyntable::SubTable::subtable
-													);
-
-													let subtable_segment =
-														segments.iter_mut().skip(1).next().unwrap();
-													subtable_segment.arguments =
-														PathArguments::AngleBracketed(
-															AngleBracketedGenericArguments {
-																colon2_token: Some(
-																	Default::default(),
-																),
-																lt_token: Default::default(),
-																gt_token: Default::default(),
-																args: [GenericArgument::Type(
-																	vtable_path(
-																		supertable.node.clone(),
-																	),
-																)]
-																.into_iter()
-																.collect(),
-															},
-														);
-
-													segments
-												},
-											},
+											path: path!(
+												::dyntable::SubTable[GenericArgument::Type(vtable_path(supertable.node.clone()))]::subtable
+											),
 										})),
 										paren_token: Default::default(),
 										args: [Expr::Path(ExprPath {
 											attrs: Vec::new(),
 											qself: None,
-											path: Path::from(Ident::new("self", Span::call_site())),
+											path: path!(self),
 										})]
 										.into_iter()
 										.collect(),
@@ -1054,12 +1003,9 @@ mod process {
 				qself: None,
 				path: Path::from(PathSegment {
 					ident: self.vtable_ident.clone(),
-					arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-						colon2_token: None,
-						lt_token: Default::default(),
-						gt_token: Default::default(),
-						args: generic_params_into_args(vtable_generics.params).collect(),
-					}),
+					arguments: path_arguments!(
+						generic_params_into_args(vtable_generics.params).collect()
+					),
 				}),
 			});
 
@@ -1081,17 +1027,10 @@ mod process {
 							lifetimes: None,
 							path: Path::from(PathSegment {
 								ident: self.dyntrait.ident.clone(),
-								arguments: PathArguments::AngleBracketed(
-									AngleBracketedGenericArguments {
-										colon2_token: None,
-										lt_token: Default::default(),
-										gt_token: Default::default(),
-										args: generic_params_into_args(
-											self.dyntrait.generics.params.clone(),
-										)
-										.collect(),
-									},
-								),
+								arguments: path_arguments!(generic_params_into_args(
+									self.dyntrait.generics.params.clone()
+								)
+								.collect()),
 							}),
 						})]
 						.into_iter()
@@ -1104,25 +1043,7 @@ mod process {
 				},
 				trait_: Some((
 					None,
-					Path {
-						leading_colon: Some(Default::default()),
-						segments: {
-							let mut segments = path_segments!(dyntable::DynTable);
-
-							let last = segments.last_mut().unwrap();
-							last.arguments =
-								PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-									colon2_token: None,
-									lt_token: Default::default(),
-									gt_token: Default::default(),
-									args: [GenericArgument::Type(vtable_type.clone())]
-										.into_iter()
-										.collect(),
-								});
-
-							segments
-						},
-					},
+					path!(::dyntable::DynTable[GenericArgument::Type(vtable_type.clone())]),
 					<Token![for]>::default(),
 				)),
 				self_ty: Box::new(Type::Path(TypePath {
@@ -1205,31 +1126,9 @@ mod process {
 													path: Path::from(impl_target_ident.clone()),
 												})),
 											}),
-											path: Path {
-												leading_colon: Default::default(),
-												segments: {
-													let mut segments =
-														path_segments!(dyntable::DynTable::VTABLE);
-
-													let dyntable_segment =
-														segments.iter_mut().skip(1).next().unwrap();
-													dyntable_segment.arguments =
-														PathArguments::AngleBracketed(
-															AngleBracketedGenericArguments {
-																colon2_token: None,
-																lt_token: Default::default(),
-																gt_token: Default::default(),
-																args: [GenericArgument::Type(
-																	vtable_path(node),
-																)]
-																.into_iter()
-																.collect(),
-															},
-														);
-
-													segments
-												},
-											},
+											path: path!(
+												::dyntable::DynTable[GenericArgument::Type(vtable_path(node))]::VTABLE
+											),
 										}),
 									});
 								}
@@ -1335,21 +1234,12 @@ mod process {
 													&format!("__{}_drop", self.dyntrait.ident),
 													Span::call_site(),
 												),
-												arguments: PathArguments::AngleBracketed(
-													AngleBracketedGenericArguments {
-														colon2_token: Some(Default::default()),
-														lt_token: Default::default(),
-														gt_token: Default::default(),
-														args: [GenericArgument::Type(Type::Path(
-															TypePath {
-																qself: None,
-																path: Path::from(impl_target_ident),
-															},
-														))]
-														.into_iter()
-														.collect(),
-													},
-												),
+												arguments: path_arguments!(<[
+													GenericArgument::Type(Type::Path(TypePath {
+														qself: None,
+														path: Path::from(impl_target_ident),
+													}))
+												]>),
 											}]
 											.into_iter()
 											.collect(),
@@ -1451,7 +1341,7 @@ mod process {
 								args: [Expr::Path(ExprPath {
 									attrs: Vec::new(),
 									qself: None,
-									path: Path::from(Ident::new("ptr", Span::call_site())),
+									path: path!(ptr),
 								})]
 								.into_iter()
 								.collect(),
@@ -1474,7 +1364,7 @@ mod process {
 										expr: Box::new(Expr::Path(ExprPath {
 											attrs: Vec::new(),
 											qself: None,
-											path: Path::from(Ident::new("ptr", Span::call_site())),
+											path: path!(ptr),
 										})),
 										ty: Box::new(Type::Ptr(TypePtr {
 											star_token: Default::default(),
@@ -1482,10 +1372,7 @@ mod process {
 											mutability: Some(Default::default()),
 											elem: Box::new(Type::Path(TypePath {
 												qself: None,
-												path: Path::from(Ident::new(
-													"u8",
-													Span::call_site(),
-												)),
+												path: path!(u8),
 											})),
 										})),
 									}),
@@ -1495,35 +1382,14 @@ mod process {
 										func: Box::new(Expr::Path(ExprPath {
 											attrs: Vec::new(),
 											qself: None,
-											path: Path {
-												leading_colon: Some(Default::default()),
-												segments: {
-													let mut segments =
-														path_segments!(core::alloc::Layout::new);
-
-													let last = segments.last_mut().unwrap();
-													last.arguments = PathArguments::AngleBracketed(
-														AngleBracketedGenericArguments {
-															colon2_token: Some(Default::default()),
-															lt_token: Default::default(),
-															gt_token: Default::default(),
-															args: [GenericArgument::Type(
-																Type::Path(TypePath {
-																	qself: None,
-																	path: Path::from(Ident::new(
-																		"T",
-																		Span::call_site(),
-																	)),
-																}),
-															)]
-															.into_iter()
-															.collect(),
-														},
-													);
-
-													segments
-												},
-											},
+											path: path!(
+												::core::alloc::Layout::new[GenericArgument::Type(
+													Type::Path(TypePath {
+														qself: None,
+														path: path!(T),
+													})
+												)]
+											),
 										})),
 										args: Punctuated::new(),
 									}),
@@ -1557,13 +1423,10 @@ mod process {
 					qself: None,
 					path: Path::from(PathSegment {
 						ident: self.vtable_ident,
-						arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-							colon2_token: None,
-							lt_token: Default::default(),
-							gt_token: Default::default(),
-							args: generic_params_into_args(vtable_generics.params.clone())
-								.collect(),
-						}),
+						arguments: path_arguments!(generic_params_into_args(
+							vtable_generics.params.clone()
+						)
+						.collect()),
 					}),
 				})),
 				generics: vtable_generics,
@@ -1598,7 +1461,7 @@ mod process {
 								pat: Box::new(Pat::Path(PatPath {
 									attrs: Vec::new(),
 									qself: None,
-									path: Path::from(Ident::new("instance", Span::call_site())),
+									path: path!(instance),
 								})),
 								colon_token: Default::default(),
 								ty: Box::new(Type::Ptr(TypePtr {
@@ -1631,7 +1494,7 @@ mod process {
 									base: Box::new(Expr::Path(ExprPath {
 										attrs: Vec::new(),
 										qself: None,
-										path: Path::from(Ident::new("self", Span::call_site())),
+										path: path!(self),
 									})),
 									member: Member::Named(Ident::new("__drop", Span::call_site())),
 								})),
@@ -1639,7 +1502,7 @@ mod process {
 							args: [Expr::Path(ExprPath {
 								attrs: Vec::new(),
 								qself: None,
-								path: Path::from(Ident::new("instance", Span::call_site())),
+								path: path!(instance),
 							})]
 							.into_iter()
 							.collect(),
@@ -1683,17 +1546,10 @@ mod process {
 
 							supertables.insert(Path::from(PathSegment {
 								ident: self.dyntrait.ident.clone(),
-								arguments: PathArguments::AngleBracketed(
-									AngleBracketedGenericArguments {
-										colon2_token: None,
-										lt_token: Default::default(),
-										gt_token: Default::default(),
-										args: generic_params_into_args(
-											self.dyntrait.generics.params.clone(),
-										)
-										.collect(),
-									},
-								),
+								arguments: path_arguments!(generic_params_into_args(
+									self.dyntrait.generics.params.clone()
+								)
+								.collect()),
 							}));
 
 							supertables
@@ -1702,17 +1558,10 @@ mod process {
 							let mut supertables = HashSet::<Path>::new();
 							supertables.insert(Path::from(PathSegment {
 								ident: self.dyntrait.ident.clone(),
-								arguments: PathArguments::AngleBracketed(
-									AngleBracketedGenericArguments {
-										colon2_token: None,
-										lt_token: Default::default(),
-										gt_token: Default::default(),
-										args: generic_params_into_args(
-											self.dyntrait.generics.params.clone(),
-										)
-										.collect(),
-									},
-								),
+								arguments: path_arguments!(generic_params_into_args(
+									self.dyntrait.generics.params.clone()
+								)
+								.collect()),
 							}));
 
 							supertables
@@ -1753,29 +1602,10 @@ mod process {
 										paren_token: None,
 										modifier: TraitBoundModifier::None,
 										lifetimes: None,
-										path: Path {
-											leading_colon: Some(Default::default()),
-											segments: {
-												let mut segments =
-													path_segments!(dyntable::SubTable);
-
-												let last = segments.last_mut().unwrap();
-												last.arguments = PathArguments::AngleBracketed(
-													AngleBracketedGenericArguments {
-														colon2_token: None,
-														lt_token: Default::default(),
-														gt_token: Default::default(),
-														args: [GenericArgument::Type(vtable_path(
-															path,
-														))]
-														.into_iter()
-														.collect(),
-													},
-												);
-
-												segments
-											},
-										},
+										path: path!(
+											::dyntable::SubTable
+												[GenericArgument::Type(vtable_path(path))]
+										),
 									})
 								})
 								.collect(),
@@ -1795,38 +1625,16 @@ mod process {
 									paren_token: None,
 									modifier: TraitBoundModifier::None,
 									lifetimes: None,
-									path: Path {
-										leading_colon: Some(Default::default()),
-										segments: {
-											let mut segments = path_segments!(dyntable::VTableRepr);
-
-											let last = segments.last_mut().unwrap();
-											last.arguments = PathArguments::AngleBracketed(
-												AngleBracketedGenericArguments {
-													colon2_token: None,
-													lt_token: Default::default(),
-													gt_token: Default::default(),
-													args: [GenericArgument::Binding(Binding {
-														ident: Ident::new(
-															"VTable",
-															Span::call_site(),
-														),
-														eq_token: Default::default(),
-														ty: Type::Path(TypePath {
-															qself: None,
-															path: Path::from(
-																subtable_generic_ident,
-															),
-														}),
-													})]
-													.into_iter()
-													.collect(),
-												},
-											);
-
-											segments
-										},
-									},
+									path: path!(
+										::dyntable::VTableRepr[GenericArgument::Binding(Binding {
+											ident: Ident::new("VTable", Span::call_site()),
+											eq_token: Default::default(),
+											ty: Type::Path(TypePath {
+												qself: None,
+												path: Path::from(subtable_generic_ident),
+											}),
+										})]
+									),
 								}),
 								TypeParamBound::Trait(TraitBound {
 									paren_token: None,
@@ -1845,40 +1653,21 @@ mod process {
 					None,
 					Path::from(PathSegment {
 						ident: self.dyntrait.ident.clone(),
-						arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-							colon2_token: None,
-							lt_token: Default::default(),
-							gt_token: Default::default(),
-							args: generic_params_into_args(self.dyntrait.generics.params.clone())
-								.collect(),
-						}),
+						arguments: path_arguments!(generic_params_into_args(
+							self.dyntrait.generics.params.clone()
+						)
+						.collect()),
 					}),
 					<Token![for]>::default(),
 				)),
 				self_ty: Box::new(Type::Path(TypePath {
 					qself: None,
-					path: Path {
-						leading_colon: Some(Default::default()),
-						segments: {
-							let mut segments = path_segments!(dyntable::Dyn);
-
-							let last = segments.last_mut().unwrap();
-							last.arguments =
-								PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-									colon2_token: None,
-									lt_token: Default::default(),
-									gt_token: Default::default(),
-									args: [GenericArgument::Type(Type::Path(TypePath {
-										qself: None,
-										path: Path::from(repr_generic_ident),
-									}))]
-									.into_iter()
-									.collect(),
-								});
-
-							segments
-						},
-					},
+					path: path!(
+						::dyntable::Dyn[GenericArgument::Type(Type::Path(TypePath {
+							qself: None,
+							path: Path::from(repr_generic_ident),
+						}))]
+					),
 				})),
 				brace_token: Default::default(),
 				items: self
@@ -1886,19 +1675,20 @@ mod process {
 					.items
 					.into_iter()
 					.map(|item| match item {
-						TraitItem::Method(method) => ImplItem::Method(ImplItemMethod {
-							attrs: Vec::new(),
-							vis: Visibility::Inherited,
-							defaultness: None,
-							sig: method.sig.clone(),
-							block: Block {
-								brace_token: Default::default(),
-								stmts: vec![Stmt::Expr(Expr::Unsafe(ExprUnsafe {
-									attrs: Vec::new(),
-									unsafe_token: Default::default(),
-									block: Block {
-										brace_token: Default::default(),
-										stmts: vec![Stmt::Expr(Expr::Call(ExprCall {
+						TraitItem::Method(method) => {
+							ImplItem::Method(ImplItemMethod {
+								attrs: Vec::new(),
+								vis: Visibility::Inherited,
+								defaultness: None,
+								sig: method.sig.clone(),
+								block: Block {
+									brace_token: Default::default(),
+									stmts: vec![Stmt::Expr(Expr::Unsafe(ExprUnsafe {
+										attrs: Vec::new(),
+										unsafe_token: Default::default(),
+										block: Block {
+											brace_token: Default::default(),
+											stmts: vec![Stmt::Expr(Expr::Call(ExprCall {
 											attrs: Vec::new(),
 											paren_token: Default::default(),
 											func: Box::new(Expr::Paren(ExprParen {
@@ -1913,38 +1703,16 @@ mod process {
 														func: Box::new(Expr::Path(ExprPath {
 															attrs: Vec::new(),
 															qself: None,
-															path: Path {
-																leading_colon: Some(
-																	Default::default(),
-																),
-																segments: {
-																	let mut segments = path_segments!(dyntable::SubTable::subtable);
-
-																	let subtable_segment = segments
-																		.iter_mut()
-																		.skip(1)
-																		.next()
-																		.unwrap();
-
-																	subtable_segment.arguments = PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-																		colon2_token: Some(Default::default()),
-																		lt_token: Default::default(),
-																		gt_token: Default::default(),
-																		args: [GenericArgument::Type(vtable_path(
-																			Path::from(PathSegment {
-																				ident: self.dyntrait.ident.clone(),
-																				arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-																					colon2_token: None,
-																					lt_token: Default::default(),
-																					gt_token: Default::default(),
-																					args: generic_params_into_args(self.dyntrait.generics.params.clone()).collect(),
-																				}),
-																			})))].into_iter().collect(),
-																	});
-
-																	segments
-																},
-															},
+															path: path!(::dyntable::SubTable[
+																GenericArgument::Type(vtable_path(
+																	Path::from(PathSegment {
+																		ident: self.dyntrait.ident.clone(),
+																		arguments: path_arguments!(generic_params_into_args(
+																			self.dyntrait.generics.params.clone()
+																		).collect()),
+																	})
+																))
+															]::subtable),
 														})),
 														args: [Expr::Reference(ExprReference {
 															attrs: Vec::new(),
@@ -1960,7 +1728,7 @@ mod process {
 																	base: Box::new(Expr::Path(ExprPath {
 																		attrs: Vec::new(),
 																		qself: None,
-																		path: Path::from(Ident::new("self", Span::call_site())),
+																		path: path!(self),
 																	})),
 																	member: Member::Named(Ident::new("vtable", Span::call_site())),
 																}))
@@ -1979,7 +1747,7 @@ mod process {
 															base: Box::new(Expr::Path(ExprPath {
 																attrs: Vec::new(),
 																qself: None,
-																path: Path::from(Ident::new("self", Span::call_site())),
+																path: path!(self),
 															})),
 															member: Member::Named(Ident::new("dynptr", Span::call_site())),
 														})
@@ -1993,10 +1761,11 @@ mod process {
 													},
 												}).collect(),
 										}))],
-									},
-								}))],
-							},
-						}),
+										},
+									}))],
+								},
+							})
+						},
 						_ => unreachable!(), // already made sure this can't happen in build_vtable
 					})
 					.collect(),
