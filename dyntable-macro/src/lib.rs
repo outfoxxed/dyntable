@@ -203,7 +203,32 @@ mod process {
 		}
 	}
 
-	/// Extracts a graph of supertable inheritance
+	macro_rules! path_segments {
+		($($segment:ident)::+) => {
+			[$(
+				PathSegment::from(Ident::new(stringify!($segment), Span::call_site()))
+			),+]
+				.into_iter()
+				.collect::<Punctuated<_, _>>()
+		}
+	}
+
+	macro_rules! path {
+		($($segment:ident)::+) => {
+			Path {
+				leading_colon: None,
+				segments: path_segments!($($segment)::+),
+			}
+		};
+		(::$($segment:ident)::+) => {
+			Path {
+				leading_colon: Some(Default::default()),
+				segments: path_segments!($($segment)::+),
+			}
+		};
+	}
+
+	/// extracts a graph of supertable inheritance
 	pub fn extract_supertables(
 		supertraits: impl IntoIterator<Item = TypeParamBound>,
 		where_predicates: impl IntoIterator<Item = DynWherePredicate>,
@@ -313,13 +338,7 @@ mod process {
 				as_token: Default::default(),
 				gt_token: Default::default(),
 			}),
-			path: Path {
-				leading_colon: Some(Default::default()),
-				segments: ["dyntable", "VTableRepr", "VTable"]
-					.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-					.into_iter()
-					.collect(),
-			},
+			path: path!(::dyntable::VTableRepr::VTable),
 		})
 	}
 
@@ -548,24 +567,7 @@ mod process {
 															mutability: receiver.mutability,
 															elem: Box::new(Type::Path(TypePath {
 																qself: None,
-																path: Path {
-																	leading_colon: Some(
-																		Default::default(),
-																	),
-																	segments: [
-																		"core", "ffi", "c_void",
-																	]
-																	.map(|p| {
-																		PathSegment::from(
-																			Ident::new(
-																				p,
-																				receiver.span(),
-																			),
-																		)
-																	})
-																	.into_iter()
-																	.collect(),
-																},
+																path: path!(::core::ffi::c_void),
 															})),
 														}),
 													})
@@ -622,18 +624,7 @@ mod process {
 										mutability: Some(Default::default()),
 										elem: Box::new(Type::Path(TypePath {
 											qself: None,
-											path: Path {
-												leading_colon: Some(Default::default()),
-												segments: ["core", "ffi", "c_void"]
-													.map(|p| {
-														PathSegment::from(Ident::new(
-															p,
-															Span::call_site(),
-														))
-													})
-													.into_iter()
-													.collect(),
-											},
+											path: path!(::core::ffi::c_void),
 										})),
 									}),
 								}]
@@ -691,12 +682,7 @@ mod process {
 										}),
 									};
 
-									let mut punctuated = ["core", "marker", "PhantomData"]
-										.map(|p| {
-											PathSegment::from(Ident::new(p, Span::call_site()))
-										})
-										.into_iter()
-										.collect::<Punctuated<PathSegment, _>>();
+									let mut punctuated = path_segments!(core::marker::PhantomData);
 
 									let last = punctuated.last_mut().unwrap();
 									last.arguments = PathArguments::AngleBracketed(
@@ -739,17 +725,7 @@ mod process {
 				defaultness: None,
 				unsafety: Some(Default::default()),
 				impl_token: Default::default(),
-				trait_: Some((
-					None,
-					Path {
-						leading_colon: Some(Default::default()),
-						segments: ["dyntable", "VTable"]
-							.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-							.into_iter()
-							.collect(),
-					},
-					<Token![for]>::default(),
-				)),
+				trait_: Some((None, path!(::dyntable::VTable), <Token![for]>::default())),
 				self_ty: Box::new(Type::Path(TypePath {
 					qself: None,
 					path: Path::from(PathSegment {
@@ -788,13 +764,7 @@ mod process {
 				},
 				trait_: Some((
 					None,
-					Path {
-						leading_colon: Some(Default::default()),
-						segments: ["dyntable", "VTableRepr"]
-							.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-							.into_iter()
-							.collect(),
-					},
+					path!(::dyntable::VTableRepr),
 					<Token![for]>::default(),
 				)),
 				self_ty: Box::new(Type::TraitObject(TypeTraitObject {
@@ -875,10 +845,7 @@ mod process {
 						Path {
 							leading_colon: Some(Default::default()),
 							segments: {
-								let mut segments = ["dyntable", "SubTable"]
-									.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-									.into_iter()
-									.collect::<Punctuated<PathSegment, _>>();
+								let mut segments = path_segments!(dyntable::SubTable);
 
 								let last = segments.last_mut().unwrap();
 								last.arguments =
@@ -1021,17 +988,9 @@ mod process {
 											path: Path {
 												leading_colon: Default::default(),
 												segments: {
-													let mut segments =
-														["dyntable", "SubTable", "subtable"]
-															.map(|p| {
-																PathSegment::from(Ident::new(
-																	p,
-																	Span::call_site(),
-																))
-															})
-															.into_iter()
-															.collect::<Punctuated<PathSegment, _>>(
-															);
+													let mut segments = path_segments!(
+														dyntable::SubTable::subtable
+													);
 
 													let subtable_segment =
 														segments.iter_mut().skip(1).next().unwrap();
@@ -1148,10 +1107,7 @@ mod process {
 					Path {
 						leading_colon: Some(Default::default()),
 						segments: {
-							let mut segments = ["dyntable", "DynTable"]
-								.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-								.into_iter()
-								.collect::<Punctuated<PathSegment, _>>();
+							let mut segments = path_segments!(dyntable::DynTable);
 
 							let last = segments.last_mut().unwrap();
 							last.arguments =
@@ -1198,15 +1154,7 @@ mod process {
 							expr: Box::new(Expr::Path(ExprPath {
 								attrs: Vec::new(),
 								qself: None,
-								path: Path {
-									leading_colon: None,
-									segments: ["Self", "VTABLE"]
-										.map(|p| {
-											PathSegment::from(Ident::new(p, Span::call_site()))
-										})
-										.into_iter()
-										.collect(),
-								},
+								path: path!(Self::VTABLE),
 							})),
 						}),
 					}),
@@ -1261,16 +1209,7 @@ mod process {
 												leading_colon: Default::default(),
 												segments: {
 													let mut segments =
-														["dyntable", "DynTable", "VTABLE"]
-															.map(|p| {
-																PathSegment::from(Ident::new(
-																	p,
-																	Span::call_site(),
-																))
-															})
-															.into_iter()
-															.collect::<Punctuated<PathSegment, _>>(
-															);
+														path_segments!(dyntable::DynTable::VTABLE);
 
 													let dyntable_segment =
 														segments.iter_mut().skip(1).next().unwrap();
@@ -1327,13 +1266,7 @@ mod process {
 														func: Box::new(Expr::Path(ExprPath {
 															attrs: Vec::new(),
 															qself: None,
-															path: Path {
-																leading_colon: Some(Default::default()),
-																segments: ["core", "intrinsics", "transmute"]
-																	.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-																	.into_iter()
-																	.collect(),
-															},
+															path: path!(::core::intrinsics::transmute),
 														})),
 														paren_token: Default::default(),
 														args: [Expr::Cast(ExprCast {
@@ -1434,18 +1367,7 @@ mod process {
 									expr: Expr::Path(ExprPath {
 										attrs: Vec::new(),
 										qself: None,
-										path: Path {
-											leading_colon: Some(Default::default()),
-											segments: ["core", "marker", "PhantomData"]
-												.map(|p| {
-													PathSegment::from(Ident::new(
-														p,
-														Span::call_site(),
-													))
-												})
-												.into_iter()
-												.collect(),
-										},
+										path: path!(::core::marker::PhantomData),
 									}),
 								});
 
@@ -1505,15 +1427,7 @@ mod process {
 							mutability: Some(Default::default()),
 							elem: Box::new(Type::Path(TypePath {
 								qself: None,
-								path: Path {
-									leading_colon: Some(Default::default()),
-									segments: ["core", "ffi", "c_void"]
-										.map(|p| {
-											PathSegment::from(Ident::new(p, Span::call_site()))
-										})
-										.into_iter()
-										.collect(),
-								},
+								path: path!(::core::ffi::c_void),
 							})),
 						})),
 					})]
@@ -1532,15 +1446,7 @@ mod process {
 								func: Box::new(Expr::Path(ExprPath {
 									attrs: Vec::new(),
 									qself: None,
-									path: Path {
-										leading_colon: Some(Default::default()),
-										segments: ["core", "ptr", "drop_in_place"]
-											.map(|p| {
-												PathSegment::from(Ident::new(p, Span::call_site()))
-											})
-											.into_iter()
-											.collect(),
-									},
+									path: path!(::core::ptr::drop_in_place),
 								})),
 								args: [Expr::Path(ExprPath {
 									attrs: Vec::new(),
@@ -1559,15 +1465,7 @@ mod process {
 								func: Box::new(Expr::Path(ExprPath {
 									attrs: Vec::new(),
 									qself: None,
-									path: Path {
-										leading_colon: Some(Default::default()),
-										segments: ["std", "alloc", "dealloc"]
-											.map(|p| {
-												PathSegment::from(Ident::new(p, Span::call_site()))
-											})
-											.into_iter()
-											.collect(),
-									},
+									path: path!(::std::alloc::dealloc),
 								})),
 								args: [
 									Expr::Cast(ExprCast {
@@ -1601,16 +1499,7 @@ mod process {
 												leading_colon: Some(Default::default()),
 												segments: {
 													let mut segments =
-														["core", "alloc", "Layout", "new"]
-															.map(|p| {
-																PathSegment::from(Ident::new(
-																	p,
-																	Span::call_site(),
-																))
-															})
-															.into_iter()
-															.collect::<Punctuated<PathSegment, _>>(
-															);
+														path_segments!(core::alloc::Layout::new);
 
 													let last = segments.last_mut().unwrap();
 													last.arguments = PathArguments::AngleBracketed(
@@ -1663,17 +1552,7 @@ mod process {
 				defaultness: None,
 				unsafety: Some(Default::default()),
 				impl_token: Default::default(),
-				trait_: Some((
-					None,
-					Path {
-						leading_colon: Some(Default::default()),
-						segments: ["dyntable", "DropTable"]
-							.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-							.into_iter()
-							.collect(),
-					},
-					<Token![for]>::default(),
-				)),
+				trait_: Some((None, path!(::dyntable::DropTable), <Token![for]>::default())),
 				self_ty: Box::new(Type::Path(TypePath {
 					qself: None,
 					path: Path::from(PathSegment {
@@ -1728,18 +1607,7 @@ mod process {
 									mutability: Some(Default::default()),
 									elem: Box::new(Type::Path(TypePath {
 										qself: None,
-										path: Path {
-											leading_colon: Some(Default::default()),
-											segments: ["core", "ffi", "c_void"]
-												.map(|p| {
-													PathSegment::from(Ident::new(
-														p,
-														Span::call_site(),
-													))
-												})
-												.into_iter()
-												.collect(),
-										},
+										path: path!(::core::ffi::c_void),
 									})),
 								})),
 							}),
@@ -1888,15 +1756,8 @@ mod process {
 										path: Path {
 											leading_colon: Some(Default::default()),
 											segments: {
-												let mut segments = ["dyntable", "SubTable"]
-													.map(|p| {
-														PathSegment::from(Ident::new(
-															p,
-															Span::call_site(),
-														))
-													})
-													.into_iter()
-													.collect::<Punctuated<PathSegment, _>>();
+												let mut segments =
+													path_segments!(dyntable::SubTable);
 
 												let last = segments.last_mut().unwrap();
 												last.arguments = PathArguments::AngleBracketed(
@@ -1937,15 +1798,7 @@ mod process {
 									path: Path {
 										leading_colon: Some(Default::default()),
 										segments: {
-											let mut segments = ["dyntable", "VTableRepr"]
-												.map(|p| {
-													PathSegment::from(Ident::new(
-														p,
-														Span::call_site(),
-													))
-												})
-												.into_iter()
-												.collect::<Punctuated<PathSegment, _>>();
+											let mut segments = path_segments!(dyntable::VTableRepr);
 
 											let last = segments.last_mut().unwrap();
 											last.arguments = PathArguments::AngleBracketed(
@@ -1979,15 +1832,7 @@ mod process {
 									paren_token: None,
 									modifier: TraitBoundModifier::Maybe(Default::default()),
 									lifetimes: None,
-									path: Path {
-										leading_colon: Some(Default::default()),
-										segments: ["core", "marker", "Sized"]
-											.map(|p| {
-												PathSegment::from(Ident::new(p, Span::call_site()))
-											})
-											.into_iter()
-											.collect(),
-									},
+									path: path!(::core::marker::Sized),
 								}),
 							]
 							.into_iter()
@@ -2015,10 +1860,7 @@ mod process {
 					path: Path {
 						leading_colon: Some(Default::default()),
 						segments: {
-							let mut segments = ["dyntable", "Dyn"]
-								.map(|p| PathSegment::from(Ident::new(p, Span::call_site())))
-								.into_iter()
-								.collect::<Punctuated<PathSegment, _>>();
+							let mut segments = path_segments!(dyntable::Dyn);
 
 							let last = segments.last_mut().unwrap();
 							last.arguments =
@@ -2076,21 +1918,7 @@ mod process {
 																	Default::default(),
 																),
 																segments: {
-																	let mut segments = [
-																		"dyntable", "SubTable",
-																		"subtable",
-																	]
-																	.map(|p| {
-																		PathSegment::from(
-																			Ident::new(
-																				p,
-																				Span::call_site(),
-																			),
-																		)
-																	})
-																	.into_iter()
-																	.collect::<Punctuated<PathSegment, _>>(
-																	);
+																	let mut segments = path_segments!(dyntable::SubTable::subtable);
 
 																	let subtable_segment = segments
 																		.iter_mut()
