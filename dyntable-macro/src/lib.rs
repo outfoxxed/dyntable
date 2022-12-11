@@ -30,38 +30,31 @@ pub fn dyntable(
 		let mut token_stream = TokenStream::new();
 
 		dyntable
-			.dyntrait
-			.clone()
-			.strip_dyntable()
-			.to_tokens(&mut token_stream);
-		dyntable
-			.clone()
 			.build_vtable()?
 			.to_tokens(&mut token_stream);
 		dyntable.clone().impl_vtable().to_tokens(&mut token_stream);
 		dyntable
-			.clone()
 			.impl_vtable_repr()
 			.to_tokens(&mut token_stream);
 		dyntable
-			.clone()
 			.impl_subtable()?
 			.into_iter()
 			.for_each(|table| table.to_tokens(&mut token_stream));
 		dyntable
-			.clone()
 			.impl_dyntable()?
 			.to_tokens(&mut token_stream);
-		if let Some(func) = dyntable.clone().impl_dyn_drop() {
+		if let Some(func) = dyntable.impl_dyn_drop() {
 			func.to_tokens(&mut token_stream);
 		}
 		dyntable
-			.clone()
 			.impl_droptable()
 			.to_tokens(&mut token_stream);
 		dyntable
-			.clone()
 			.impl_trait_for_dyn()?
+			.to_tokens(&mut token_stream);
+		dyntable
+			.dyntrait
+			.strip_dyntable()
 			.to_tokens(&mut token_stream);
 
 		Ok(token_stream)
@@ -435,7 +428,7 @@ mod process {
 	}
 
 	impl DynTable {
-		pub fn build_vtable(self) -> syn::Result<ItemStruct> {
+		pub fn build_vtable(&self) -> syn::Result<ItemStruct> {
 			let vtable_generics = {
 				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
 				generics.params =
@@ -445,18 +438,16 @@ mod process {
 			};
 
 			Ok(ItemStruct {
-				attrs: vec![
-					//self.vtable_repr
-				],
-				vis: self.dyntrait.vis,
+				attrs: vec![],
+				vis: self.dyntrait.vis.clone(),
 				struct_token: Default::default(),
-				ident: self.vtable_ident,
+				ident: self.vtable_ident.clone(),
 				semi_token: None,
 				fields: {
-					let supertables = match self.dyntrait.generics.where_clause {
+					let supertables = match &self.dyntrait.generics.where_clause {
 						None => Vec::new(),
 						Some(DynWhereClause { predicates, .. }) => {
-							extract_supertables(self.dyntrait.supertraits, predicates)?
+							extract_supertables(self.dyntrait.supertraits.clone(), predicates.clone())?
 						},
 					};
 
@@ -477,7 +468,7 @@ mod process {
 						});
 					}
 
-					for item in self.dyntrait.items {
+					for item in &self.dyntrait.items {
 						match item {
 							TraitItem::Const(_) => {
 								return Err(syn::Error::new(
@@ -515,7 +506,7 @@ mod process {
 									variadic,
 									output,
 									..
-								} = method.sig;
+								} = method.sig.clone();
 
 								if asyncness.is_some() {
 									return Err(syn::Error::new(
@@ -625,7 +616,7 @@ mod process {
 						}
 					}
 
-					if let Some(drop_abi) = self.conf.drop_abi {
+					if let Some(drop_abi) = self.conf.drop_abi.clone() {
 						fields.push(Field {
 							attrs: Vec::new(),
 							vis: Visibility::Inherited,
@@ -756,7 +747,7 @@ mod process {
 			}
 		}
 
-		pub fn impl_vtable_repr(self) -> ItemImpl {
+		pub fn impl_vtable_repr(&self) -> ItemImpl {
 			ItemImpl {
 				attrs: Vec::new(),
 				defaultness: None,
@@ -785,7 +776,7 @@ mod process {
 						modifier: TraitBoundModifier::None,
 						lifetimes: None,
 						path: Path::from(PathSegment {
-							ident: self.dyntrait.ident,
+							ident: self.dyntrait.ident.clone(),
 							arguments: path_arguments!(generic_params_into_args(
 								self.dyntrait.generics.clone().strip_dyntable().params
 							)
@@ -812,10 +803,10 @@ mod process {
 					ty: Type::Path(TypePath {
 						qself: None,
 						path: Path::from(PathSegment {
-							ident: self.vtable_ident,
+							ident: self.vtable_ident.clone(),
 							arguments: path_arguments!(generic_params_into_args(
 								into_vtable_generics(
-									self.dyntrait.generics.strip_dyntable().params
+									self.dyntrait.generics.clone().strip_dyntable().params
 								)
 							)
 							.collect()),
@@ -989,7 +980,7 @@ mod process {
 			Ok(impls)
 		}
 
-		pub fn impl_dyntable(self) -> syn::Result<ItemImpl> {
+		pub fn impl_dyntable(&self) -> syn::Result<ItemImpl> {
 			let vtable_generics = {
 				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
 				generics.params =
@@ -1091,15 +1082,15 @@ mod process {
 						semi_token: Default::default(),
 						expr: Expr::Struct(ExprStruct {
 							attrs: Vec::new(),
-							path: Path::from(self.vtable_ident),
+							path: Path::from(self.vtable_ident.clone()),
 							brace_token: Default::default(),
 							fields: {
 								let mut fields = Punctuated::<FieldValue, _>::new();
 
-								let supertables = match self.dyntrait.generics.where_clause {
+								let supertables = match &self.dyntrait.generics.where_clause {
 									None => Vec::new(),
 									Some(DynWhereClause { predicates, .. }) => {
-										extract_supertables(self.dyntrait.supertraits, predicates)?
+										extract_supertables(self.dyntrait.supertraits.clone(), predicates.clone())?
 									},
 								};
 
@@ -1133,7 +1124,7 @@ mod process {
 									});
 								}
 
-								for item in self.dyntrait.items {
+								for item in &self.dyntrait.items {
 									// item validation is already done in build_vtable
 									if let TraitItem::Method(method) = item {
 										let Signature {
@@ -1146,7 +1137,7 @@ mod process {
 											variadic,
 											output,
 											..
-										} = method.sig;
+										} = method.sig.clone();
 
 										// checked in build_vtable
 										let abi = abi.or_else(|| self.conf.abi.clone()).unwrap();
@@ -1271,8 +1262,8 @@ mod process {
 			})
 		}
 
-		pub fn impl_dyn_drop(self) -> Option<ItemFn> {
-			self.conf.drop_abi.map(|drop_abi| ItemFn {
+		pub fn impl_dyn_drop(&self) -> Option<ItemFn> {
+			self.conf.drop_abi.clone().map(|drop_abi| ItemFn {
 				attrs: Vec::new(),
 				vis: Visibility::Inherited,
 				sig: Signature {
@@ -1404,7 +1395,7 @@ mod process {
 			})
 		}
 
-		pub fn impl_droptable(self) -> ItemImpl {
+		pub fn impl_droptable(&self) -> ItemImpl {
 			let vtable_generics = {
 				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
 				generics.params =
@@ -1422,7 +1413,7 @@ mod process {
 				self_ty: Box::new(Type::Path(TypePath {
 					qself: None,
 					path: Path::from(PathSegment {
-						ident: self.vtable_ident,
+						ident: self.vtable_ident.clone(),
 						arguments: path_arguments!(generic_params_into_args(
 							vtable_generics.params.clone()
 						)
@@ -1512,7 +1503,7 @@ mod process {
 			}
 		}
 
-		pub fn impl_trait_for_dyn(self) -> syn::Result<ItemImpl> {
+		pub fn impl_trait_for_dyn(&self) -> syn::Result<ItemImpl> {
 			let subtable_generic_ident = Ident::new("__DynSubTables", Span::call_site());
 			let repr_generic_ident = Ident::new("__DynRepr", Span::call_site());
 
@@ -1673,9 +1664,11 @@ mod process {
 				items: self
 					.dyntrait
 					.items
-					.into_iter()
+					.iter()
 					.map(|item| match item {
 						TraitItem::Method(method) => {
+							let method = method.clone();
+
 							ImplItem::Method(ImplItemMethod {
 								attrs: Vec::new(),
 								vis: Visibility::Inherited,
