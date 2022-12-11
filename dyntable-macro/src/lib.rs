@@ -29,29 +29,19 @@ pub fn dyntable(
 	let r = (|| -> syn::Result<TokenStream> {
 		let mut token_stream = TokenStream::new();
 
-		dyntable
-			.build_vtable()?
-			.to_tokens(&mut token_stream);
+		dyntable.build_vtable()?.to_tokens(&mut token_stream);
 		dyntable.clone().impl_vtable().to_tokens(&mut token_stream);
-		dyntable
-			.impl_vtable_repr()
-			.to_tokens(&mut token_stream);
+		dyntable.impl_vtable_repr().to_tokens(&mut token_stream);
 		dyntable
 			.impl_subtable()?
 			.into_iter()
 			.for_each(|table| table.to_tokens(&mut token_stream));
-		dyntable
-			.impl_dyntable()?
-			.to_tokens(&mut token_stream);
+		dyntable.impl_dyntable()?.to_tokens(&mut token_stream);
 		if let Some(func) = dyntable.impl_dyn_drop() {
 			func.to_tokens(&mut token_stream);
 		}
-		dyntable
-			.impl_droptable()
-			.to_tokens(&mut token_stream);
-		dyntable
-			.impl_trait_for_dyn()?
-			.to_tokens(&mut token_stream);
+		dyntable.impl_droptable().to_tokens(&mut token_stream);
+		dyntable.impl_trait_for_dyn()?.to_tokens(&mut token_stream);
 		dyntable
 			.dyntrait
 			.strip_dyntable()
@@ -72,12 +62,15 @@ mod process {
 		fmt::Debug,
 	};
 
-	use proc_macro2::Span;
+	use proc_macro2::{Span, TokenStream};
 	use quote::ToTokens;
 	use syn::{
 		punctuated::Punctuated,
 		spanned::Spanned,
+		token::Paren,
 		AngleBracketedGenericArguments,
+		AttrStyle,
+		Attribute,
 		BareFnArg,
 		Binding,
 		Block,
@@ -438,7 +431,24 @@ mod process {
 			};
 
 			Ok(ItemStruct {
-				attrs: vec![],
+				attrs: vec![Attribute {
+					pound_token: Default::default(),
+					style: AttrStyle::Outer,
+					bracket_token: Default::default(),
+					path: path!(allow),
+					tokens: {
+						let mut tokens = TokenStream::new();
+
+						Paren {
+							span: Span::call_site(),
+						}
+						.surround(&mut tokens, |tokens| {
+							path!(non_snake_case).to_tokens(tokens);
+						});
+
+						tokens
+					},
+				}],
 				vis: self.dyntrait.vis.clone(),
 				struct_token: Default::default(),
 				ident: self.vtable_ident.clone(),
@@ -446,9 +456,10 @@ mod process {
 				fields: {
 					let supertables = match &self.dyntrait.generics.where_clause {
 						None => Vec::new(),
-						Some(DynWhereClause { predicates, .. }) => {
-							extract_supertables(self.dyntrait.supertraits.clone(), predicates.clone())?
-						},
+						Some(DynWhereClause { predicates, .. }) => extract_supertables(
+							self.dyntrait.supertraits.clone(),
+							predicates.clone(),
+						)?,
 					};
 
 					let mut fields = Punctuated::<Field, _>::new();
@@ -1089,9 +1100,10 @@ mod process {
 
 								let supertables = match &self.dyntrait.generics.where_clause {
 									None => Vec::new(),
-									Some(DynWhereClause { predicates, .. }) => {
-										extract_supertables(self.dyntrait.supertraits.clone(), predicates.clone())?
-									},
+									Some(DynWhereClause { predicates, .. }) => extract_supertables(
+										self.dyntrait.supertraits.clone(),
+										predicates.clone(),
+									)?,
 								};
 
 								for SupertableGraph { node, .. } in supertables {
@@ -1264,7 +1276,24 @@ mod process {
 
 		pub fn impl_dyn_drop(&self) -> Option<ItemFn> {
 			self.conf.drop_abi.clone().map(|drop_abi| ItemFn {
-				attrs: Vec::new(),
+				attrs: vec![Attribute {
+					pound_token: Default::default(),
+					style: AttrStyle::Outer,
+					bracket_token: Default::default(),
+					path: path!(allow),
+					tokens: {
+						let mut tokens = TokenStream::new();
+
+						Paren {
+							span: Span::call_site(),
+						}
+						.surround(&mut tokens, |tokens| {
+							path!(non_snake_case).to_tokens(tokens);
+						});
+
+						tokens
+					},
+				}],
 				vis: Visibility::Inherited,
 				sig: Signature {
 					constness: None,
