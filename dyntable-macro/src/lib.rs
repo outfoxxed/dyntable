@@ -40,7 +40,9 @@ pub fn dyntable(
 		if let Some(func) = dyntable.impl_dyn_drop() {
 			func.to_tokens(&mut token_stream);
 		}
-		dyntable.impl_droptable().to_tokens(&mut token_stream);
+		if let Some(droptable) = dyntable.impl_droptable() {
+			droptable.to_tokens(&mut token_stream);
+		}
 		dyntable.impl_trait_for_dyn()?.to_tokens(&mut token_stream);
 		dyntable
 			.dyntrait
@@ -1223,32 +1225,34 @@ mod process {
 									}
 								}
 
-								fields.push(FieldValue {
-									attrs: Vec::new(),
-									member: Member::Named(Ident::new("__drop", Span::call_site())),
-									colon_token: Some(Default::default()),
-									expr: Expr::Path(ExprPath {
+								if self.conf.drop_abi.is_some() {
+									fields.push(FieldValue {
 										attrs: Vec::new(),
-										qself: None,
-										path: Path {
-											leading_colon: None,
-											segments: [PathSegment {
-												ident: Ident::new(
-													&format!("__{}_drop", self.dyntrait.ident),
-													Span::call_site(),
-												),
-												arguments: path_arguments!(<[
-													GenericArgument::Type(Type::Path(TypePath {
-														qself: None,
-														path: Path::from(impl_target_ident),
-													}))
-												]>),
-											}]
-											.into_iter()
-											.collect(),
-										},
-									}),
-								});
+										member: Member::Named(Ident::new("__drop", Span::call_site())),
+										colon_token: Some(Default::default()),
+										expr: Expr::Path(ExprPath {
+											attrs: Vec::new(),
+											qself: None,
+											path: Path {
+												leading_colon: None,
+												segments: [PathSegment {
+													ident: Ident::new(
+														&format!("__{}_drop", self.dyntrait.ident),
+														Span::call_site(),
+													),
+													arguments: path_arguments!(<[
+														GenericArgument::Type(Type::Path(TypePath {
+															qself: None,
+															path: Path::from(impl_target_ident),
+														}))
+													]>),
+												}]
+													.into_iter()
+													.collect(),
+											},
+										}),
+									});
+								}
 
 								fields.push(FieldValue {
 									attrs: Vec::new(),
@@ -1424,7 +1428,11 @@ mod process {
 			})
 		}
 
-		pub fn impl_droptable(&self) -> ItemImpl {
+		pub fn impl_droptable(&self) -> Option<ItemImpl> {
+			if self.conf.drop_abi.is_none() {
+				return None;
+			}
+
 			let vtable_generics = {
 				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
 				generics.params =
@@ -1433,7 +1441,7 @@ mod process {
 				generics
 			};
 
-			ItemImpl {
+			Some(ItemImpl {
 				attrs: Vec::new(),
 				defaultness: None,
 				unsafety: Some(Default::default()),
@@ -1529,7 +1537,7 @@ mod process {
 						}))],
 					},
 				})],
-			}
+			})
 		}
 
 		pub fn impl_trait_for_dyn(&self) -> syn::Result<ItemImpl> {

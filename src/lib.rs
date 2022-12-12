@@ -189,12 +189,12 @@ mod test_macro {
 		num: i32,
 	}
 
-	#[dyntable(drop_abi = "C")]
+	#[dyntable]
 	trait Incrementable<'lt, T: Add> {
 		extern "C" fn increment(&mut self, amount: &'lt T);
 	}
 
-	#[dyntable(drop_abi = "C")]
+	#[dyntable]
 	trait Decrementable<T: Sub> {
 		extern "C" fn decrement(&mut self, amount: T);
 	}
