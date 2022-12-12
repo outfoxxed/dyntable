@@ -189,17 +189,17 @@ mod test_macro {
 		num: i32,
 	}
 
-	#[dyntable]
+	#[dyntable(drop = none)]
 	trait Incrementable<'lt, T: Add> {
 		extern "C" fn increment(&mut self, amount: &'lt T);
 	}
 
-	#[dyntable]
+	#[dyntable(drop = none)]
 	trait Decrementable<T: Sub> {
 		extern "C" fn decrement(&mut self, amount: T);
 	}
 
-	#[dyntable(drop_abi = "C")]
+	#[dyntable(drop = C)]
 	trait IncDec<'lt, T: Add + Sub>: Incrementable<'lt, T> + Decrementable<T>
 	where
 		dyn Incrementable<'lt, T>:,
@@ -207,7 +207,7 @@ mod test_macro {
 	{
 	}
 
-	#[dyntable(drop_abi = "C")]
+	#[dyntable(drop = C)]
 	trait Get<'lt, T: Add + Sub>: IncDec<'lt, T>
 	where
 		dyn IncDec<'lt, T>: Incrementable<'lt, T> + Decrementable<T>,

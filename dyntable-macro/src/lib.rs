@@ -24,7 +24,6 @@ pub fn dyntable(
 		),
 		dyntrait: dyn_trait,
 		conf: attrconf,
-		//vtable_repr: None,
 	};
 	let r = (|| -> syn::Result<TokenStream> {
 		let mut token_stream = TokenStream::new();
@@ -138,7 +137,7 @@ mod process {
 		VisPublic,
 		Visibility,
 		WhereClause,
-		WherePredicate,
+		WherePredicate, Abi, LitStr,
 	};
 
 	use crate::parse::{
@@ -146,7 +145,7 @@ mod process {
 		DynTrait,
 		DynWhereClause,
 		DynWherePredicate,
-		DynWherePredicateSupertrait,
+		DynWherePredicateSupertrait, Drop,
 	};
 
 	#[derive(Debug, Clone)]
@@ -423,6 +422,24 @@ mod process {
 	}
 
 	impl DynTable {
+		fn abi(&self) -> Abi {
+			Abi {
+				extern_token: Default::default(),
+				name: Some(LitStr::new(&self.conf.abi.to_string(), self.conf.abi.span())),
+			}
+		}
+
+		fn drop_abi(&self) -> Option<Abi> {
+			match &self.conf.drop {
+				Drop::None => None,
+				Drop::FollowAbi => Some(self.abi()),
+				Drop::Abi(name) => Some(Abi {
+					extern_token: Default::default(),
+					name: Some(LitStr::new(&name.to_string(), name.span())),
+				}),
+			}
+		}
+
 		pub fn build_vtable(&self) -> syn::Result<ItemStruct> {
 			let vtable_generics = {
 				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
@@ -433,23 +450,42 @@ mod process {
 			};
 
 			Ok(ItemStruct {
-				attrs: vec![Attribute {
-					pound_token: Default::default(),
-					style: AttrStyle::Outer,
-					bracket_token: Default::default(),
-					path: path!(allow),
-					tokens: {
-						let mut tokens = TokenStream::new();
+				attrs: vec![
+					Attribute {
+						pound_token: Default::default(),
+						style: AttrStyle::Outer,
+						bracket_token: Default::default(),
+						path: path!(repr),
+						tokens: {
+							let mut tokens = TokenStream::new();
 
-						Paren {
-							span: Span::call_site(),
-						}
-						.surround(&mut tokens, |tokens| {
-							path!(non_snake_case).to_tokens(tokens);
-						});
+							Paren {
+								span: Span::call_site(),
+							}
+							.surround(&mut tokens, |tokens| {
+								Path::from(self.conf.abi.clone()).to_tokens(tokens);
+							});
 
-						tokens
+							tokens
+						},
 					},
+					Attribute {
+						pound_token: Default::default(),
+						style: AttrStyle::Outer,
+						bracket_token: Default::default(),
+						path: path!(allow),
+						tokens: {
+							let mut tokens = TokenStream::new();
+
+							Paren {
+								span: Span::call_site(),
+							}
+							.surround(&mut tokens, |tokens| {
+								path!(non_snake_case).to_tokens(tokens);
+							});
+
+							tokens
+						},
 				}],
 				vis: self.dyntrait.vis.clone(),
 				struct_token: Default::default(),
@@ -528,15 +564,7 @@ mod process {
 									))
 								}
 
-								let abi = match abi.or_else(|| self.conf.abi.clone()) {
-									Some(abi) => abi,
-									None => {
-										return Err(syn::Error::new(
-											method_span,
-											"method must explicitly declare its ABI",
-										))
-									},
-								};
+								let abi = abi.unwrap_or_else(|| self.abi());
 
 								for param in &generics.params {
 									match param {
@@ -629,7 +657,7 @@ mod process {
 						}
 					}
 
-					if let Some(drop_abi) = self.conf.drop_abi.clone() {
+					if let Some(drop_abi) = self.drop_abi() {
 						fields.push(Field {
 							attrs: Vec::new(),
 							vis: Visibility::Inherited,
@@ -1154,7 +1182,7 @@ mod process {
 										} = method.sig.clone();
 
 										// checked in build_vtable
-										let abi = abi.or_else(|| self.conf.abi.clone()).unwrap();
+										let abi = abi.unwrap_or_else(|| self.abi());
 
 										fields.push(FieldValue {
 											attrs: Vec::new(),
@@ -1225,33 +1253,36 @@ mod process {
 									}
 								}
 
-								if self.conf.drop_abi.is_some() {
-									fields.push(FieldValue {
-										attrs: Vec::new(),
-										member: Member::Named(Ident::new("__drop", Span::call_site())),
-										colon_token: Some(Default::default()),
-										expr: Expr::Path(ExprPath {
+								match self.conf.drop {
+									Drop::None => {},
+									_ => {
+										fields.push(FieldValue {
 											attrs: Vec::new(),
-											qself: None,
-											path: Path {
-												leading_colon: None,
-												segments: [PathSegment {
-													ident: Ident::new(
-														&format!("__{}_drop", self.dyntrait.ident),
-														Span::call_site(),
-													),
-													arguments: path_arguments!(<[
-														GenericArgument::Type(Type::Path(TypePath {
-															qself: None,
-															path: Path::from(impl_target_ident),
-														}))
-													]>),
-												}]
-													.into_iter()
-													.collect(),
-											},
-										}),
-									});
+											member: Member::Named(Ident::new("__drop", Span::call_site())),
+											colon_token: Some(Default::default()),
+											expr: Expr::Path(ExprPath {
+												attrs: Vec::new(),
+												qself: None,
+												path: Path {
+													leading_colon: None,
+													segments: [PathSegment {
+														ident: Ident::new(
+															&format!("__{}_drop", self.dyntrait.ident),
+															Span::call_site(),
+														),
+														arguments: path_arguments!(<[
+															GenericArgument::Type(Type::Path(TypePath {
+																qself: None,
+																path: Path::from(impl_target_ident),
+															}))
+														]>),
+													}]
+														.into_iter()
+														.collect(),
+												},
+											}),
+										});
+									},
 								}
 
 								fields.push(FieldValue {
@@ -1279,7 +1310,7 @@ mod process {
 		}
 
 		pub fn impl_dyn_drop(&self) -> Option<ItemFn> {
-			self.conf.drop_abi.clone().map(|drop_abi| ItemFn {
+			self.drop_abi().map(|drop_abi| ItemFn {
 				attrs: vec![Attribute {
 					pound_token: Default::default(),
 					style: AttrStyle::Outer,
@@ -1429,7 +1460,7 @@ mod process {
 		}
 
 		pub fn impl_droptable(&self) -> Option<ItemImpl> {
-			if self.conf.drop_abi.is_none() {
+			if let Drop::None = self.conf.drop {
 				return None;
 			}
 
@@ -1805,7 +1836,8 @@ mod process {
 }
 
 mod parse {
-	use syn::{
+	use proc_macro2::Span;
+use syn::{
 		braced,
 		ext::IdentExt,
 		parse::{Parse, ParseStream},
@@ -1836,15 +1868,22 @@ mod parse {
 
 	#[derive(Debug, Clone)]
 	pub struct AttrConf {
-		pub abi: Option<Abi>,
-		pub drop_abi: Option<Abi>,
+		pub abi: Ident,
+		pub drop: Drop,
+	}
+
+	#[derive(Debug, Clone)]
+	pub enum Drop {
+		None,
+		FollowAbi,
+		Abi(Ident),
 	}
 
 	impl Parse for AttrConf {
 		fn parse(input: ParseStream) -> syn::Result<Self> {
 			enum Option {
-				Abi(LitStr),
-				DropAbi(LitStr),
+				Abi(Ident),
+				DropAbi(std::option::Option<Ident>),
 			}
 
 			impl Parse for Option {
@@ -1853,11 +1892,16 @@ mod parse {
 					match &ident.to_string() as &str {
 						"abi" => {
 							let _ = input.parse::<Token![=]>()?;
-							Ok(Option::Abi(input.parse::<LitStr>()?))
+							Ok(Option::Abi(input.parse::<Ident>()?))
 						},
-						"drop_abi" => {
+						"drop" => {
 							let _ = input.parse::<Token![=]>()?;
-							Ok(Option::DropAbi(input.parse::<LitStr>()?))
+							let abi = input.parse::<Ident>()?;
+							if abi.to_string() == "none" {
+								Ok(Option::DropAbi(None))
+							} else {
+								Ok(Option::DropAbi(Some(abi)))
+							}
 						},
 						_ => Err(syn::Error::new(
 							ident.span(),
@@ -1870,24 +1914,15 @@ mod parse {
 			let options = Punctuated::<Option, Token![,]>::parse_terminated(input)?;
 
 			let mut conf = AttrConf {
-				abi: None,
-				drop_abi: None,
+				abi: Ident::new("C", Span::call_site()),
+				drop: Drop::FollowAbi,
 			};
 
 			for option in options {
 				match option {
-					Option::Abi(x) => {
-						conf.abi = Some(Abi {
-							extern_token: Default::default(),
-							name: Some(x),
-						})
-					},
-					Option::DropAbi(x) => {
-						conf.drop_abi = Some(Abi {
-							extern_token: Default::default(),
-							name: Some(x),
-						})
-					},
+					Option::Abi(x) => conf.abi = x,
+					Option::DropAbi(Some(x)) => conf.drop = Drop::Abi(x),
+					Option::DropAbi(None) => conf.drop = Drop::None,
 				}
 			}
 
