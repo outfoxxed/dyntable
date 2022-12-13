@@ -4,6 +4,42 @@ use std::{
 	ops::{Deref, DerefMut},
 };
 
+/// Dyntable implementation details. You should not depend on these.
+pub mod __private {
+	use std::{ffi::c_void, marker::PhantomData};
+
+	use crate::{Dyn, DynTable, VTable, VTableRepr};
+
+	#[inline]
+	pub fn dyn_vtable<V: VTableRepr + ?Sized>(r#dyn: &Dyn<V>) -> *const V::VTable {
+		r#dyn.vtable
+	}
+
+	#[inline]
+	pub fn dyn_ptr<V: VTableRepr + ?Sized>(r#dyn: &Dyn<V>) -> *mut c_void {
+		r#dyn.dynptr
+	}
+
+	/// Struct used to evade the orphan rule, which prevents directly
+	/// implementing DynTable for `T: DynTrait`
+	pub struct DynImplTarget<T, V: VTable>(PhantomData<(T, V)>);
+
+	/// Copy of DynTrait used to prevent a recursive impl
+	pub unsafe trait DynTable2<V: VTable> {
+		const VTABLE: V;
+		const STATIC_VTABLE: &'static V;
+	}
+
+	// would cause a recursive impl if `DynTable` was used instead of `DynTable2`
+	unsafe impl<T, V: VTable> DynTable<V> for T
+	where
+		DynImplTarget<T, V>: DynTable2<V>,
+	{
+		const STATIC_VTABLE: &'static V = DynImplTarget::<T, V>::STATIC_VTABLE;
+		const VTABLE: V = DynImplTarget::<T, V>::VTABLE;
+	}
+}
+
 /// Marker for dyntable traits
 pub unsafe trait DynTable<V: VTable> {
 	/// The underlying VTable for the type this trait is applied to

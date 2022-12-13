@@ -35,7 +35,7 @@ pub fn dyntable(
 			.impl_subtable()?
 			.into_iter()
 			.for_each(|table| table.to_tokens(&mut token_stream));
-		dyntable.impl_dyntable()?.to_tokens(&mut token_stream);
+		dyntable.impl_dyntable(&mut token_stream)?;
 		if let Some(func) = dyntable.impl_dyn_drop() {
 			func.to_tokens(&mut token_stream);
 		}
@@ -69,6 +69,7 @@ mod process {
 		punctuated::Punctuated,
 		spanned::Spanned,
 		token::Paren,
+		Abi,
 		AngleBracketedGenericArguments,
 		AttrStyle,
 		Attribute,
@@ -103,7 +104,9 @@ mod process {
 		ItemFn,
 		ItemImpl,
 		ItemStruct,
+		ItemTrait,
 		Lifetime,
+		LitStr,
 		Member,
 		Pat,
 		PatIdent,
@@ -122,6 +125,7 @@ mod process {
 		TraitBound,
 		TraitBoundModifier,
 		TraitItem,
+		TraitItemConst,
 		Type,
 		TypeBareFn,
 		TypeInfer,
@@ -137,15 +141,16 @@ mod process {
 		VisPublic,
 		Visibility,
 		WhereClause,
-		WherePredicate, Abi, LitStr,
+		WherePredicate,
 	};
 
 	use crate::parse::{
 		AttrConf,
+		Drop,
 		DynTrait,
 		DynWhereClause,
 		DynWherePredicate,
-		DynWherePredicateSupertrait, Drop,
+		DynWherePredicateSupertrait,
 	};
 
 	#[derive(Debug, Clone)]
@@ -425,7 +430,10 @@ mod process {
 		fn abi(&self) -> Abi {
 			Abi {
 				extern_token: Default::default(),
-				name: Some(LitStr::new(&self.conf.abi.to_string(), self.conf.abi.span())),
+				name: Some(LitStr::new(
+					&self.conf.abi.to_string(),
+					self.conf.abi.span(),
+				)),
 			}
 		}
 
@@ -486,7 +494,8 @@ mod process {
 
 							tokens
 						},
-				}],
+					},
+				],
 				vis: self.dyntrait.vis.clone(),
 				struct_token: Default::default(),
 				ident: self.vtable_ident.clone(),
@@ -541,8 +550,6 @@ mod process {
 								return Err(syn::Error::new(item.span(), "unknown tokens"))
 							},
 							TraitItem::Method(method) => {
-								let method_span = method.span();
-
 								let Signature {
 									asyncness,
 									unsafety,
@@ -1021,7 +1028,7 @@ mod process {
 			Ok(impls)
 		}
 
-		pub fn impl_dyntable(&self) -> syn::Result<ItemImpl> {
+		pub fn impl_dyntable(&self, tokens: &mut TokenStream) -> syn::Result<()> {
 			let vtable_generics = {
 				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
 				generics.params =
@@ -1030,6 +1037,10 @@ mod process {
 				generics
 			};
 
+			let dyntable_proxy_ident = Ident::new(
+				&format!("__DynTable_{}", self.dyntrait.ident.to_string()),
+				Span::call_site(),
+			);
 			let impl_target_ident = Ident::new("__DynTarget", Span::call_site());
 			let vtable_type = Type::Path(TypePath {
 				qself: None,
@@ -1041,7 +1052,208 @@ mod process {
 				}),
 			});
 
-			Ok(ItemImpl {
+			// DynTable proxy trait
+			ItemTrait {
+				attrs: vec![Attribute {
+					pound_token: Default::default(),
+					style: AttrStyle::Outer,
+					bracket_token: Default::default(),
+					path: path!(allow),
+					tokens: {
+						let mut tokens = TokenStream::new();
+
+						Paren {
+							span: Span::call_site(),
+						}
+						.surround(&mut tokens, |tokens| {
+							path!(non_camel_case_types).to_tokens(tokens)
+						});
+
+						tokens
+					},
+				}],
+				vis: Visibility::Inherited,
+				unsafety: Some(Default::default()),
+				auto_token: None,
+				trait_token: Default::default(),
+				ident: dyntable_proxy_ident.clone(),
+				generics: Generics {
+					lt_token: Some(Default::default()),
+					gt_token: Some(Default::default()),
+					params: [GenericParam::Type(TypeParam {
+						attrs: Vec::new(),
+						ident: Ident::new("V", Span::call_site()),
+						colon_token: Some(Default::default()),
+						bounds: [TypeParamBound::Trait(TraitBound {
+							paren_token: None,
+							modifier: TraitBoundModifier::None,
+							lifetimes: None,
+							path: path!(::dyntable::VTable),
+						})]
+						.into_iter()
+						.collect(),
+						eq_token: None,
+						default: None,
+					})]
+					.into_iter()
+					.collect(),
+					where_clause: None,
+				},
+				colon_token: Default::default(),
+				supertraits: Punctuated::new(),
+				brace_token: Default::default(),
+				items: vec![
+					TraitItem::Const(TraitItemConst {
+						attrs: Vec::new(),
+						const_token: Default::default(),
+						ident: Ident::new("VTABLE", Span::call_site()),
+						colon_token: Default::default(),
+						ty: Type::Path(TypePath {
+							qself: None,
+							path: path!(V),
+						}),
+						default: None,
+						semi_token: Default::default(),
+					}),
+					TraitItem::Const(TraitItemConst {
+						attrs: Vec::new(),
+						const_token: Default::default(),
+						ident: Ident::new("STATIC_VTABLE", Span::call_site()),
+						colon_token: Default::default(),
+						ty: Type::Reference(TypeReference {
+							and_token: Default::default(),
+							lifetime: Some(Lifetime {
+								apostrophe: Span::call_site(),
+								ident: Ident::new("static", Span::call_site()),
+							}),
+							mutability: None,
+							elem: Box::new(Type::Path(TypePath {
+								qself: None,
+								path: path!(V),
+							})),
+						}),
+						default: None,
+						semi_token: Default::default(),
+					}),
+				],
+			}
+			.to_tokens(tokens);
+
+			// Impl for DynImplTarget
+			ItemImpl {
+				attrs: Vec::new(),
+				defaultness: None,
+				unsafety: Some(Default::default()),
+				impl_token: Default::default(),
+				generics: {
+					let mut generics = self.dyntrait.generics.clone().strip_dyntable();
+
+					generics.params.push(GenericParam::Type(TypeParam {
+						attrs: Vec::new(),
+						ident: Ident::new("__DynTable", Span::call_site()),
+						colon_token: None,
+						bounds: Punctuated::new(),
+						eq_token: None,
+						default: None,
+					}));
+
+					let where_clause = generics.where_clause.get_or_insert_with(|| WhereClause {
+						where_token: Default::default(),
+						predicates: Punctuated::new(),
+					});
+
+					where_clause
+						.predicates
+						.push(WherePredicate::Type(PredicateType {
+							lifetimes: None,
+							bounded_ty: Type::Path(TypePath {
+								qself: None,
+								path: path!(__DynTable),
+							}),
+							colon_token: Default::default(),
+							bounds: [TypeParamBound::Trait(TraitBound {
+								paren_token: Some(Default::default()),
+								modifier: TraitBoundModifier::None,
+								lifetimes: None,
+								path: Path {
+									leading_colon: None,
+									segments: [PathSegment {
+										ident: dyntable_proxy_ident.clone(),
+										arguments: path_arguments!(<[GenericArgument::Type(vtable_type.clone())]>),
+									}]
+									.into_iter()
+									.collect(),
+								},
+							})]
+							.into_iter()
+							.collect(),
+						}));
+
+					generics
+				},
+				trait_: Some((
+					None,
+					path!(
+						::dyntable::__private::DynTable2
+							[GenericArgument::Type(vtable_type.clone())]
+					),
+					<Token![for]>::default(),
+				)),
+				self_ty: Box::new(Type::Path(TypePath {
+					qself: None,
+					path: path!(::dyntable::__private::DynImplTarget[
+						GenericArgument::Type(Type::Path(TypePath {
+							qself: None,
+							path: path!(__DynTable),
+						})),
+						GenericArgument::Type(vtable_type.clone())
+					]),
+				})),
+				brace_token: Default::default(),
+				items: vec![
+					ImplItem::Const(ImplItemConst {
+						attrs: Vec::new(),
+						vis: Visibility::Inherited,
+						defaultness: None,
+						const_token: Default::default(),
+						ident: Ident::new("VTABLE", Span::call_site()),
+						colon_token: Default::default(),
+						ty: vtable_type.clone(),
+						eq_token: Default::default(),
+						semi_token: Default::default(),
+						expr: Expr::Path(ExprPath {
+							attrs: Vec::new(),
+							qself: None,
+							path: path!(__DynTable::VTABLE),
+						}),
+					}),
+					ImplItem::Const(ImplItemConst {
+						attrs: Vec::new(),
+						vis: Visibility::Inherited,
+						defaultness: None,
+						const_token: Default::default(),
+						ident: Ident::new("STATIC_VTABLE", Span::call_site()),
+						colon_token: Default::default(),
+						ty: Type::Reference(TypeReference {
+							and_token: Default::default(),
+							lifetime: Some(Lifetime::new("'static", Span::call_site())),
+							mutability: None,
+							elem: Box::new(vtable_type.clone()),
+						}),
+						eq_token: Default::default(),
+						semi_token: Default::default(),
+						expr: Expr::Path(ExprPath {
+							attrs: Vec::new(),
+							qself: None,
+							path: path!(__DynTable::STATIC_VTABLE),
+						}),
+					}),
+				],
+			}
+			.to_tokens(tokens);
+
+			// DynTable (proxy) impl
+			ItemImpl {
 				attrs: Vec::new(),
 				defaultness: None,
 				unsafety: Some(Default::default()),
@@ -1075,7 +1287,15 @@ mod process {
 				},
 				trait_: Some((
 					None,
-					path!(::dyntable::DynTable[GenericArgument::Type(vtable_type.clone())]),
+					Path {
+						leading_colon: None,
+						segments: [PathSegment {
+							ident: dyntable_proxy_ident.clone(),
+							arguments: path_arguments!(<[GenericArgument::Type(vtable_type.clone())]>),
+						}]
+						.into_iter()
+						.collect(),
+					},
 					<Token![for]>::default(),
 				)),
 				self_ty: Box::new(Type::Path(TypePath {
@@ -1106,8 +1326,28 @@ mod process {
 							mutability: None,
 							expr: Box::new(Expr::Path(ExprPath {
 								attrs: Vec::new(),
-								qself: None,
-								path: path!(Self::VTABLE),
+								qself: Some(QSelf {
+									lt_token: Default::default(),
+									gt_token: Default::default(),
+									as_token: Some(Default::default()),
+									ty: Box::new(Type::Path(TypePath {
+										qself: None,
+										path: path!(Self),
+									})),
+									position: 1,
+								}),
+								path: Path {
+									leading_colon: None,
+									segments: [
+										PathSegment {
+											ident: dyntable_proxy_ident.clone(),
+											arguments: path_arguments!(<[GenericArgument::Type(vtable_type.clone())]>),
+										},
+										PathSegment::from(Ident::new("VTABLE", Span::call_site())),
+									]
+									.into_iter()
+									.collect(),
+								},
 							})),
 						}),
 					}),
@@ -1258,7 +1498,10 @@ mod process {
 									_ => {
 										fields.push(FieldValue {
 											attrs: Vec::new(),
-											member: Member::Named(Ident::new("__drop", Span::call_site())),
+											member: Member::Named(Ident::new(
+												"__drop",
+												Span::call_site(),
+											)),
 											colon_token: Some(Default::default()),
 											expr: Expr::Path(ExprPath {
 												attrs: Vec::new(),
@@ -1267,7 +1510,10 @@ mod process {
 													leading_colon: None,
 													segments: [PathSegment {
 														ident: Ident::new(
-															&format!("__{}_drop", self.dyntrait.ident),
+															&format!(
+																"__{}_drop",
+																self.dyntrait.ident
+															),
 															Span::call_site(),
 														),
 														arguments: path_arguments!(<[
@@ -1277,8 +1523,8 @@ mod process {
 															}))
 														]>),
 													}]
-														.into_iter()
-														.collect(),
+													.into_iter()
+													.collect(),
 												},
 											}),
 										});
@@ -1306,7 +1552,10 @@ mod process {
 						}),
 					}),
 				],
-			})
+			}
+			.to_tokens(tokens);
+
+			Ok(())
 		}
 
 		pub fn impl_dyn_drop(&self) -> Option<ItemFn> {
@@ -1461,7 +1710,7 @@ mod process {
 
 		pub fn impl_droptable(&self) -> Option<ItemImpl> {
 			if let Drop::None = self.conf.drop {
-				return None;
+				return None
 			}
 
 			let vtable_generics = {
@@ -1783,16 +2032,20 @@ mod process {
 															expr: Box::new(Expr::Unary(ExprUnary {
 																attrs: Vec::new(),
 																op: UnOp::Deref(Default::default()),
-																expr: Box::new(Expr::Field(ExprField {
+																expr: Box::new(Expr::Call(ExprCall {
 																	attrs: Vec::new(),
-																	dot_token: Default::default(),
-																	base: Box::new(Expr::Path(ExprPath {
+																	paren_token: Default::default(),
+																	func: Box::new(Expr::Path(ExprPath {
+																		attrs: Vec::new(),
+																		qself: None,
+																		path:  path!(::dyntable::__private::dyn_vtable),
+																	})),
+																	args: [Expr::Path(ExprPath {
 																		attrs: Vec::new(),
 																		qself: None,
 																		path: path!(self),
-																	})),
-																	member: Member::Named(Ident::new("vtable", Span::call_site())),
-																}))
+																	})].into_iter().collect(),
+																})),
 															}))
 														})].into_iter().collect()
 													})),
@@ -1802,15 +2055,19 @@ mod process {
 											args: method.sig.inputs.into_iter()
 												.map(|arg| match arg {
 													FnArg::Receiver(_) => {
-														Expr::Field(ExprField {
+														Expr::Call(ExprCall {
 															attrs: Vec::new(),
-															dot_token: Default::default(),
-															base: Box::new(Expr::Path(ExprPath {
+															paren_token: Default::default(),
+															func: Box::new(Expr::Path(ExprPath {
+																attrs: Vec::new(),
+																qself: None,
+																path:  path!(::dyntable::__private::dyn_ptr),
+															})),
+															args: [Expr::Path(ExprPath {
 																attrs: Vec::new(),
 																qself: None,
 																path: path!(self),
-															})),
-															member: Member::Named(Ident::new("dynptr", Span::call_site())),
+															})].into_iter().collect(),
 														})
 													},
 													FnArg::Typed(PatType {
@@ -1837,13 +2094,12 @@ mod process {
 
 mod parse {
 	use proc_macro2::Span;
-use syn::{
+	use syn::{
 		braced,
 		ext::IdentExt,
 		parse::{Parse, ParseStream},
 		punctuated::Punctuated,
 		token::{self, Trait},
-		Abi,
 		Attribute,
 		ConstParam,
 		GenericParam,
@@ -1852,7 +2108,6 @@ use syn::{
 		ItemTrait,
 		Lifetime,
 		LifetimeDef,
-		LitStr,
 		Path,
 		PredicateEq,
 		PredicateLifetime,
