@@ -25,30 +25,30 @@ pub mod __private {
 	pub struct DynImplTarget<T, V: VTable>(PhantomData<(T, V)>);
 
 	/// Copy of DynTrait used to prevent a recursive impl
-	pub unsafe trait DynTable2<V: VTable> {
+	pub unsafe trait DynTable2<'v, V: 'v + VTable> {
 		const VTABLE: V;
-		const STATIC_VTABLE: &'static V;
+		const STATIC_VTABLE: &'v V;
 	}
 
 	// would cause a recursive impl if `DynTable` was used instead of `DynTable2`
-	unsafe impl<T, V: VTable> DynTable<V> for T
+	unsafe impl<'v, T, V: 'v + VTable> DynTable<'v, V> for T
 	where
-		DynImplTarget<T, V>: DynTable2<V>,
+		DynImplTarget<T, V>: DynTable2<'v, V>,
 	{
-		const STATIC_VTABLE: &'static V = DynImplTarget::<T, V>::STATIC_VTABLE;
+		const STATIC_VTABLE: &'v V = DynImplTarget::<T, V>::STATIC_VTABLE;
 		const VTABLE: V = DynImplTarget::<T, V>::VTABLE;
 	}
 }
 
 /// Marker for dyntable traits
-pub unsafe trait DynTable<V: VTable> {
+pub unsafe trait DynTable<'v, V: 'v + VTable> {
 	/// The underlying VTable for the type this trait is applied to
 	const VTABLE: V;
-	const STATIC_VTABLE: &'static V;
+	const STATIC_VTABLE: &'v V;
 }
 
 /// Marker trait for structs that are VTables
-pub unsafe trait VTable: 'static {}
+pub unsafe trait VTable {}
 
 /// Trait used to drop objects behind a dyntable.
 ///
@@ -155,7 +155,10 @@ where
 	V: VTableRepr + ?Sized,
 	V::VTable: DropTable,
 {
-	pub fn new<T: DynTable<V::VTable>>(data: T) -> Self {
+	pub fn new<'v, T: DynTable<'v, V::VTable>>(data: T) -> Self
+	where
+		V::VTable: 'v,
+	{
 		Self {
 			r#dyn: Dyn {
 				vtable: T::STATIC_VTABLE,
@@ -179,11 +182,11 @@ where
 	}
 }
 
-impl<T, V> From<Box<T>> for DynBox<V>
+impl<'v, T, V> From<Box<T>> for DynBox<V>
 where
-	T: DynTable<V::VTable>,
+	T: DynTable<'v, V::VTable>,
 	V: VTableRepr + ?Sized,
-	V::VTable: DropTable,
+	V::VTable: 'v + DropTable,
 {
 	fn from(value: Box<T>) -> Self {
 		Self {
@@ -226,7 +229,7 @@ mod test_macro {
 	}
 
 	#[dyntable(drop = none)]
-	trait Incrementable<'lt, T: Add> {
+	trait Incrementable<'lt, T: Add + 'static> {
 		extern "C" fn increment(&mut self, amount: &'lt T);
 	}
 
@@ -236,7 +239,7 @@ mod test_macro {
 	}
 
 	#[dyntable(drop = C)]
-	trait IncDec<'lt, T: Add + Sub>: Incrementable<'lt, T> + Decrementable<T>
+	trait IncDec<'lt, T: Add + Sub + 'static>: Incrementable<'lt, T> + Decrementable<T>
 	where
 		dyn Incrementable<'lt, T>:,
 		dyn Decrementable<T>:,
@@ -244,7 +247,7 @@ mod test_macro {
 	}
 
 	#[dyntable(drop = C)]
-	trait Get<'lt, T: Add + Sub>: IncDec<'lt, T>
+	trait Get<'lt, T: Add + Sub + 'static>: IncDec<'lt, T>
 	where
 		dyn IncDec<'lt, T>: Incrementable<'lt, T> + Decrementable<T>,
 	{
@@ -412,7 +415,7 @@ mod test {
 		std::alloc::dealloc(ptr as *mut u8, std::alloc::Layout::new::<D>());
 	}
 
-	unsafe impl<'lt, T: Add, D: Incrementable<'lt, T>> DynTable<IncrementableVTable<T>> for D {
+	unsafe impl<'lt, T: Add, D: Incrementable<'lt, T>> DynTable<'static, IncrementableVTable<T>> for D {
 		const STATIC_VTABLE: &'static IncrementableVTable<T> = &Self::VTABLE;
 		const VTABLE: IncrementableVTable<T> = IncrementableVTable {
 			drop: c_drop::<D>,
@@ -420,7 +423,7 @@ mod test {
 		};
 	}
 
-	unsafe impl<T: Sub, D: Decrementable<T>> DynTable<DecrementableVTable<T>> for D {
+	unsafe impl<T: Sub, D: Decrementable<T>> DynTable<'static, DecrementableVTable<T>> for D {
 		const STATIC_VTABLE: &'static DecrementableVTable<T> = &Self::VTABLE;
 		const VTABLE: DecrementableVTable<T> = DecrementableVTable {
 			drop: c_drop::<D>,
@@ -428,7 +431,7 @@ mod test {
 		};
 	}
 
-	unsafe impl<'lt, T: Add + Sub, D: IncDec<'lt, T>> DynTable<IncDecVTable<T>> for D {
+	unsafe impl<'lt, T: Add + Sub, D: IncDec<'lt, T>> DynTable<'static, IncDecVTable<T>> for D {
 		const STATIC_VTABLE: &'static IncDecVTable<T> = &Self::VTABLE;
 		const VTABLE: IncDecVTable<T> = IncDecVTable {
 			drop: c_drop::<D>,
@@ -437,7 +440,7 @@ mod test {
 		};
 	}
 
-	unsafe impl<'lt, T: Add + Sub, D: Get<'lt, T>> DynTable<GetVTable<T>> for D {
+	unsafe impl<'lt, T: Add + Sub, D: Get<'lt, T>> DynTable<'static, GetVTable<T>> for D {
 		const STATIC_VTABLE: &'static GetVTable<T> = &Self::VTABLE;
 		const VTABLE: GetVTable<T> = GetVTable {
 			drop: c_drop::<D>,

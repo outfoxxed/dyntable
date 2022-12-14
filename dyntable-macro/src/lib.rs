@@ -106,6 +106,7 @@ mod process {
 		ItemStruct,
 		ItemTrait,
 		Lifetime,
+		LifetimeDef,
 		LitStr,
 		Member,
 		Pat,
@@ -324,7 +325,7 @@ mod process {
 	}
 
 	/// Gets the path to a dyntable trait's vtable given a path to said trait.
-	fn vtable_path(mut path: Path) -> Type {
+	fn vtable_path(path: Path) -> Type {
 		Type::Path(TypePath {
 			qself: Some(QSelf {
 				lt_token: Default::default(),
@@ -337,10 +338,7 @@ mod process {
 								paren_token: None,
 								modifier: TraitBoundModifier::None,
 								lifetimes: None,
-								path: {
-									make_path_static(&mut path);
-									path
-								},
+								path,
 							}),
 							TypeParamBound::Lifetime(Lifetime::new("'static", Span::call_site())),
 						]
@@ -372,44 +370,6 @@ mod process {
 			}
 		}
 	}
-
-	/// Make all lifetimes in a type parameter 'static,
-	/// or add a 'static bound if there is none
-	fn make_type_param_static(params: &mut TypeParam) {
-		for param in &params.bounds {
-			if let TypeParamBound::Lifetime(lt) = param {
-				if lt.ident.to_string() == "static" {
-					return // no need to add a bound
-				}
-			}
-		}
-
-		params.bounds = std::mem::take(&mut params.bounds)
-			.into_iter()
-			.filter(|bounds| !matches!(bounds, TypeParamBound::Lifetime(_)))
-			.collect();
-
-		params.bounds.push(TypeParamBound::Lifetime(Lifetime::new(
-			"'static",
-			Span::call_site(),
-		)));
-	}
-
-	fn into_vtable_generics(
-		generics: impl IntoIterator<Item = GenericParam>,
-	) -> impl Iterator<Item = GenericParam> {
-		generics
-			.into_iter()
-			.filter_map(|predicate| match predicate {
-				GenericParam::Lifetime(_) => None,
-				GenericParam::Type(mut ty) => {
-					make_type_param_static(&mut ty);
-					Some(GenericParam::Type(ty))
-				},
-				GenericParam::Const(x) => Some(GenericParam::Const(x)),
-			})
-	}
-
 	fn generic_params_into_args(
 		generics: impl IntoIterator<Item = GenericParam>,
 	) -> impl Iterator<Item = GenericArgument> {
@@ -449,13 +409,7 @@ mod process {
 		}
 
 		pub fn build_vtable(&self) -> syn::Result<ItemStruct> {
-			let vtable_generics = {
-				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
-				generics.params =
-					into_vtable_generics(std::mem::take(&mut generics.params)).collect();
-
-				generics
-			};
+			let vtable_generics = self.dyntrait.generics.clone().strip_dyntable();
 
 			Ok(ItemStruct {
 				attrs: vec![
@@ -711,15 +665,27 @@ mod process {
 										.params
 										.iter()
 										.filter_map(|param| match param {
-											GenericParam::Type(ty) => Some(Path {
-												leading_colon: None,
-												segments: [PathSegment::from(ty.ident.clone())]
-													.into_iter()
-													.collect(),
-											}),
-											// ignore non `Type` generics, constans should have to be used somewhere
-											// accessable and lifetimes are ignored
-											_ => None,
+											GenericParam::Type(ty) => Some(Type::Path(TypePath {
+												qself: None,
+												path: Path {
+													leading_colon: None,
+													segments: [PathSegment::from(ty.ident.clone())]
+														.into_iter()
+														.collect(),
+												},
+											})),
+											GenericParam::Lifetime(lt) => {
+												Some(Type::Reference(TypeReference {
+													and_token: Default::default(),
+													lifetime: Some(lt.lifetime.clone()),
+													mutability: None,
+													elem: Box::new(Type::Tuple(TypeTuple {
+														paren_token: Default::default(),
+														elems: Punctuated::new(),
+													})),
+												}))
+											},
+											GenericParam::Const(_) => None,
 										})
 										.collect::<Vec<_>>();
 
@@ -728,18 +694,10 @@ mod process {
 											paren_token: Default::default(),
 											elems: Punctuated::new(),
 										}),
-										1 => Type::Path(TypePath {
-											qself: None,
-											path: phantom_types.remove(0),
-										}),
+										1 => phantom_types.remove(0),
 										_ => Type::Tuple(TypeTuple {
 											paren_token: Default::default(),
-											elems: phantom_types
-												.into_iter()
-												.map(|path| {
-													Type::Path(TypePath { qself: None, path })
-												})
-												.collect(),
+											elems: phantom_types.into_iter().collect(),
 										}),
 									};
 
@@ -765,13 +723,7 @@ mod process {
 		}
 
 		pub fn impl_vtable(self) -> ItemImpl {
-			let vtable_generics = {
-				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
-				generics.params =
-					into_vtable_generics(std::mem::take(&mut generics.params)).collect();
-
-				generics
-			};
+			let vtable_generics = self.dyntrait.generics.clone().strip_dyntable();
 
 			ItemImpl {
 				attrs: Vec::new(),
@@ -801,17 +753,7 @@ mod process {
 				defaultness: None,
 				unsafety: None,
 				impl_token: Default::default(),
-				generics: {
-					let mut generics = self.dyntrait.generics.clone().strip_dyntable();
-
-					for param in &mut generics.params {
-						if let GenericParam::Type(ty) = param {
-							make_type_param_static(ty);
-						}
-					}
-
-					generics
-				},
+				generics: self.dyntrait.generics.clone().strip_dyntable(),
 				trait_: Some((
 					None,
 					path!(::dyntable::VTableRepr),
@@ -853,9 +795,7 @@ mod process {
 						path: Path::from(PathSegment {
 							ident: self.vtable_ident.clone(),
 							arguments: path_arguments!(generic_params_into_args(
-								into_vtable_generics(
-									self.dyntrait.generics.clone().strip_dyntable().params
-								)
+								self.dyntrait.generics.clone().strip_dyntable().params
 							)
 							.collect()),
 						}),
@@ -945,13 +885,7 @@ mod process {
 					where_clause.predicates.clone(),
 				)?;
 
-				let vtable_generics = {
-					let mut generics = self.dyntrait.generics.clone().strip_dyntable();
-					generics.params =
-						into_vtable_generics(std::mem::take(&mut generics.params)).collect();
-
-					generics
-				};
+				let vtable_generics = self.dyntrait.generics.clone().strip_dyntable();
 
 				for supertable in supertables {
 					impls.push(impl_subtable(
@@ -1029,18 +963,13 @@ mod process {
 		}
 
 		pub fn impl_dyntable(&self, tokens: &mut TokenStream) -> syn::Result<()> {
-			let vtable_generics = {
-				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
-				generics.params =
-					into_vtable_generics(std::mem::take(&mut generics.params)).collect();
-
-				generics
-			};
+			let vtable_generics = self.dyntrait.generics.clone().strip_dyntable();
 
 			let dyntable_proxy_ident = Ident::new(
 				&format!("__DynTable_{}", self.dyntrait.ident.to_string()),
 				Span::call_site(),
 			);
+			let vtable_lifetime = Lifetime::new("'__dyn_vtable", Span::call_site());
 			let impl_target_ident = Ident::new("__DynTarget", Span::call_site());
 			let vtable_type = Type::Path(TypePath {
 				qself: None,
@@ -1080,21 +1009,32 @@ mod process {
 				generics: Generics {
 					lt_token: Some(Default::default()),
 					gt_token: Some(Default::default()),
-					params: [GenericParam::Type(TypeParam {
-						attrs: Vec::new(),
-						ident: Ident::new("V", Span::call_site()),
-						colon_token: Some(Default::default()),
-						bounds: [TypeParamBound::Trait(TraitBound {
-							paren_token: None,
-							modifier: TraitBoundModifier::None,
-							lifetimes: None,
-							path: path!(::dyntable::VTable),
-						})]
-						.into_iter()
-						.collect(),
-						eq_token: None,
-						default: None,
-					})]
+					params: [
+						GenericParam::Lifetime(LifetimeDef {
+							attrs: Vec::new(),
+							lifetime: vtable_lifetime.clone(),
+							colon_token: None,
+							bounds: Punctuated::new(),
+						}),
+						GenericParam::Type(TypeParam {
+							attrs: Vec::new(),
+							ident: Ident::new("V", Span::call_site()),
+							colon_token: Some(Default::default()),
+							bounds: [
+								TypeParamBound::Lifetime(vtable_lifetime.clone()),
+								TypeParamBound::Trait(TraitBound {
+									paren_token: None,
+									modifier: TraitBoundModifier::None,
+									lifetimes: None,
+									path: path!(::dyntable::VTable),
+								}),
+							]
+							.into_iter()
+							.collect(),
+							eq_token: None,
+							default: None,
+						}),
+					]
 					.into_iter()
 					.collect(),
 					where_clause: None,
@@ -1122,10 +1062,7 @@ mod process {
 						colon_token: Default::default(),
 						ty: Type::Reference(TypeReference {
 							and_token: Default::default(),
-							lifetime: Some(Lifetime {
-								apostrophe: Span::call_site(),
-								ident: Ident::new("static", Span::call_site()),
-							}),
+							lifetime: Some(vtable_lifetime.clone()),
 							mutability: None,
 							elem: Box::new(Type::Path(TypePath {
 								qself: None,
@@ -1147,6 +1084,30 @@ mod process {
 				impl_token: Default::default(),
 				generics: {
 					let mut generics = self.dyntrait.generics.clone().strip_dyntable();
+
+					for param in &mut generics.params {
+						match param {
+							GenericParam::Lifetime(param) => {
+								param.bounds.insert(0, vtable_lifetime.clone());
+							},
+							GenericParam::Type(param) => {
+								param
+									.bounds
+									.insert(0, TypeParamBound::Lifetime(vtable_lifetime.clone()));
+							},
+							GenericParam::Const(_) => {},
+						}
+					}
+
+					generics.params.insert(
+						0,
+						GenericParam::Lifetime(LifetimeDef {
+							attrs: Vec::new(),
+							lifetime: vtable_lifetime.clone(),
+							colon_token: None,
+							bounds: Punctuated::new(),
+						}),
+					);
 
 					generics.params.push(GenericParam::Type(TypeParam {
 						attrs: Vec::new(),
@@ -1179,7 +1140,10 @@ mod process {
 									leading_colon: None,
 									segments: [PathSegment {
 										ident: dyntable_proxy_ident.clone(),
-										arguments: path_arguments!(<[GenericArgument::Type(vtable_type.clone())]>),
+										arguments: path_arguments!(<[
+												GenericArgument::Lifetime(vtable_lifetime.clone()),
+												GenericArgument::Type(vtable_type.clone())
+											]>),
 									}]
 									.into_iter()
 									.collect(),
@@ -1194,8 +1158,10 @@ mod process {
 				trait_: Some((
 					None,
 					path!(
-						::dyntable::__private::DynTable2
-							[GenericArgument::Type(vtable_type.clone())]
+						::dyntable::__private::DynTable2[
+							GenericArgument::Lifetime(vtable_lifetime.clone()),
+							GenericArgument::Type(vtable_type.clone())
+						]
 					),
 					<Token![for]>::default(),
 				)),
@@ -1236,7 +1202,7 @@ mod process {
 						colon_token: Default::default(),
 						ty: Type::Reference(TypeReference {
 							and_token: Default::default(),
-							lifetime: Some(Lifetime::new("'static", Span::call_site())),
+							lifetime: Some(vtable_lifetime.clone()),
 							mutability: None,
 							elem: Box::new(vtable_type.clone()),
 						}),
@@ -1260,6 +1226,30 @@ mod process {
 				impl_token: Default::default(),
 				generics: {
 					let mut generics = self.dyntrait.generics.clone().strip_dyntable();
+
+					for param in &mut generics.params {
+						match param {
+							GenericParam::Lifetime(param) => {
+								param.bounds.insert(0, vtable_lifetime.clone());
+							},
+							GenericParam::Type(param) => {
+								param
+									.bounds
+									.insert(0, TypeParamBound::Lifetime(vtable_lifetime.clone()));
+							},
+							GenericParam::Const(_) => {},
+						}
+					}
+
+					generics.params.insert(
+						0,
+						GenericParam::Lifetime(LifetimeDef {
+							attrs: Vec::new(),
+							lifetime: vtable_lifetime.clone(),
+							colon_token: None,
+							bounds: Punctuated::new(),
+						}),
+					);
 
 					generics.params.push(GenericParam::Type(TypeParam {
 						attrs: Vec::new(),
@@ -1291,7 +1281,10 @@ mod process {
 						leading_colon: None,
 						segments: [PathSegment {
 							ident: dyntable_proxy_ident.clone(),
-							arguments: path_arguments!(<[GenericArgument::Type(vtable_type.clone())]>),
+							arguments: path_arguments!(<[
+								GenericArgument::Lifetime(vtable_lifetime.clone()),
+								GenericArgument::Type(vtable_type.clone())
+							]>),
 						}]
 						.into_iter()
 						.collect(),
@@ -1313,7 +1306,7 @@ mod process {
 						colon_token: Default::default(),
 						ty: Type::Reference(TypeReference {
 							and_token: Default::default(),
-							lifetime: Some(Lifetime::new("'static", Span::call_site())),
+							lifetime: Some(vtable_lifetime.clone()),
 							mutability: None,
 							elem: Box::new(vtable_type.clone()),
 						}),
@@ -1713,13 +1706,7 @@ mod process {
 				return None
 			}
 
-			let vtable_generics = {
-				let mut generics = self.dyntrait.generics.clone().strip_dyntable();
-				generics.params =
-					into_vtable_generics(std::mem::take(&mut generics.params)).collect();
-
-				generics
-			};
+			let vtable_generics = self.dyntrait.generics.clone().strip_dyntable();
 
 			Some(ItemImpl {
 				attrs: Vec::new(),
@@ -1831,12 +1818,6 @@ mod process {
 				impl_token: Default::default(),
 				generics: {
 					let mut generics = self.dyntrait.generics.clone().strip_dyntable();
-
-					for param in &mut generics.params {
-						if let GenericParam::Type(ty) = param {
-							make_type_param_static(ty);
-						}
-					}
 
 					let subtable_paths = match self.dyntrait.generics.where_clause.clone() {
 						Some(where_clause) => {
@@ -2020,7 +2001,7 @@ mod process {
 																		arguments: path_arguments!(generic_params_into_args(
 																			self.dyntrait.generics.params.clone()
 																		).collect()),
-																	})
+																	}),
 																))
 															]::subtable),
 														})),
