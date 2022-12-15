@@ -610,7 +610,27 @@ mod process {
 											})
 											.collect::<Result<_, _>>()?,
 										variadic,
-										output,
+										output: match output {
+											ReturnType::Type(arrow, ty) => ReturnType::Type(
+												arrow,
+												Box::new(match *ty {
+													Type::Reference(reference) => {
+														Type::Ptr(TypePtr {
+															star_token: Default::default(),
+															const_token: match &reference.mutability
+															{
+																Some(_) => None,
+																None => Default::default(),
+															},
+															mutability: reference.mutability,
+															elem: reference.elem,
+														})
+													},
+													ty => ty,
+												}),
+											),
+											output => output,
+										},
 									}),
 								})
 							},
@@ -1967,11 +1987,121 @@ mod process {
 						TraitItem::Method(method) => {
 							let method = method.clone();
 
+							let call = Expr::Call(ExprCall {
+								attrs: Vec::new(),
+								paren_token: Default::default(),
+								func: Box::new(Expr::Paren(ExprParen {
+									attrs: Vec::new(),
+									paren_token: Default::default(),
+									expr: Box::new(Expr::Field(ExprField {
+										attrs: Vec::new(),
+										dot_token: Default::default(),
+										base: Box::new(Expr::Call(ExprCall {
+											attrs: Vec::new(),
+											paren_token: Default::default(),
+											func: Box::new(Expr::Path(ExprPath {
+												attrs: Vec::new(),
+												qself: None,
+												path: path!(::dyntable::SubTable[
+													GenericArgument::Type(vtable_path(
+														Path::from(PathSegment {
+															ident: self.dyntrait.ident.clone(),
+															arguments: path_arguments!(generic_params_into_args(
+																self.dyntrait.generics.params.clone()
+															).collect()),
+														}),
+													))
+												]::subtable),
+											})),
+											args: [Expr::Reference(ExprReference {
+												attrs: Vec::new(),
+												and_token: Default::default(),
+												raw: Default::default(),
+												mutability: None,
+												expr: Box::new(Expr::Unary(ExprUnary {
+													attrs: Vec::new(),
+													op: UnOp::Deref(Default::default()),
+													expr: Box::new(Expr::Call(ExprCall {
+														attrs: Vec::new(),
+														paren_token: Default::default(),
+														func: Box::new(Expr::Path(ExprPath {
+															attrs: Vec::new(),
+															qself: None,
+															path: path!(
+																::dyntable::__private::dyn_vtable
+															),
+														})),
+														args: [Expr::Path(ExprPath {
+															attrs: Vec::new(),
+															qself: None,
+															path: path!(self),
+														})]
+														.into_iter()
+														.collect(),
+													})),
+												})),
+											})]
+											.into_iter()
+											.collect(),
+										})),
+										member: Member::Named(method.sig.ident.clone()),
+									})),
+								})),
+								args: method
+									.sig
+									.inputs
+									.clone()
+									.into_iter()
+									.map(|arg| match arg {
+										FnArg::Receiver(_) => Expr::Call(ExprCall {
+											attrs: Vec::new(),
+											paren_token: Default::default(),
+											func: Box::new(Expr::Path(ExprPath {
+												attrs: Vec::new(),
+												qself: None,
+												path: path!(::dyntable::__private::dyn_ptr),
+											})),
+											args: [Expr::Path(ExprPath {
+												attrs: Vec::new(),
+												qself: None,
+												path: path!(self),
+											})]
+											.into_iter()
+											.collect(),
+										}),
+										FnArg::Typed(PatType { pat, .. }) => {
+											// I am not dealing with this
+											Expr::Verbatim(pat.to_token_stream())
+										},
+									})
+									.collect(),
+							});
+
+							let call_with_possible_deref = match &method.sig.output {
+								ReturnType::Type(_, ty) => match &**ty {
+									Type::Reference(TypeReference { mutability, .. }) => {
+										Expr::Reference(ExprReference {
+											attrs: Vec::new(),
+											and_token: Default::default(),
+											raw: Default::default(),
+											mutability: mutability.clone(),
+											expr: Box::new(Expr::Unary(ExprUnary {
+												attrs: Vec::new(),
+												op: UnOp::Deref(Default::default()),
+												expr: Box::new(call),
+											})),
+										})
+									},
+									_ => call,
+								},
+								_ => call,
+							};
+
 							ImplItem::Method(ImplItemMethod {
 								attrs: Vec::new(),
 								vis: Visibility::Inherited,
 								defaultness: None,
-								sig: method.sig.clone(),
+								sig: method.sig,
 								block: Block {
 									brace_token: Default::default(),
 									stmts: vec![Stmt::Expr(Expr::Unsafe(ExprUnsafe {
@@ -1979,87 +2109,7 @@ mod process {
 										unsafe_token: Default::default(),
 										block: Block {
 											brace_token: Default::default(),
-											stmts: vec![Stmt::Expr(Expr::Call(ExprCall {
-											attrs: Vec::new(),
-											paren_token: Default::default(),
-											func: Box::new(Expr::Paren(ExprParen {
-												attrs: Vec::new(),
-												paren_token: Default::default(),
-												expr: Box::new(Expr::Field(ExprField {
-													attrs: Vec::new(),
-													dot_token: Default::default(),
-													base: Box::new(Expr::Call(ExprCall {
-														attrs: Vec::new(),
-														paren_token: Default::default(),
-														func: Box::new(Expr::Path(ExprPath {
-															attrs: Vec::new(),
-															qself: None,
-															path: path!(::dyntable::SubTable[
-																GenericArgument::Type(vtable_path(
-																	Path::from(PathSegment {
-																		ident: self.dyntrait.ident.clone(),
-																		arguments: path_arguments!(generic_params_into_args(
-																			self.dyntrait.generics.params.clone()
-																		).collect()),
-																	}),
-																))
-															]::subtable),
-														})),
-														args: [Expr::Reference(ExprReference {
-															attrs: Vec::new(),
-															and_token: Default::default(),
-															raw: Default::default(),
-															mutability: None,
-															expr: Box::new(Expr::Unary(ExprUnary {
-																attrs: Vec::new(),
-																op: UnOp::Deref(Default::default()),
-																expr: Box::new(Expr::Call(ExprCall {
-																	attrs: Vec::new(),
-																	paren_token: Default::default(),
-																	func: Box::new(Expr::Path(ExprPath {
-																		attrs: Vec::new(),
-																		qself: None,
-																		path:  path!(::dyntable::__private::dyn_vtable),
-																	})),
-																	args: [Expr::Path(ExprPath {
-																		attrs: Vec::new(),
-																		qself: None,
-																		path: path!(self),
-																	})].into_iter().collect(),
-																})),
-															}))
-														})].into_iter().collect()
-													})),
-													member: Member::Named(method.sig.ident)
-												})),
-											})),
-											args: method.sig.inputs.into_iter()
-												.map(|arg| match arg {
-													FnArg::Receiver(_) => {
-														Expr::Call(ExprCall {
-															attrs: Vec::new(),
-															paren_token: Default::default(),
-															func: Box::new(Expr::Path(ExprPath {
-																attrs: Vec::new(),
-																qself: None,
-																path:  path!(::dyntable::__private::dyn_ptr),
-															})),
-															args: [Expr::Path(ExprPath {
-																attrs: Vec::new(),
-																qself: None,
-																path: path!(self),
-															})].into_iter().collect(),
-														})
-													},
-													FnArg::Typed(PatType {
-														pat,
-														..
-													}) => {
-														// I am not dealing with this
-														Expr::Verbatim(pat.to_token_stream())
-													},
-												}).collect(),
-										}))],
+											stmts: vec![Stmt::Expr(call_with_possible_deref)],
 										},
 									}))],
 								},
