@@ -7,6 +7,7 @@ trait TestTable<T: Clone> {
 	extern "C" fn get_ref(&self) -> &T;
 	extern "C" fn get_mut_ref(&mut self) -> &mut T;
 	extern "C" fn set(&mut self, value: T);
+	extern "C" fn set_from_doubleref(&mut self, value: &&T);
 }
 
 struct TestStruct<T> {
@@ -29,6 +30,10 @@ impl<T: Clone> TestTable<T> for TestStruct<T> {
 	extern "C" fn set(&mut self, value: T) {
 		self.value = value;
 	}
+
+	extern "C" fn set_from_doubleref(&mut self, value: &&T) {
+		self.value = (*value).clone();
+	}
 }
 
 #[test]
@@ -38,6 +43,8 @@ fn basic() {
 	assert_eq!(dynbox.get(), 42);
 	dynbox.set(45);
 	assert_eq!(dynbox.get(), 45);
+	dynbox.set_from_doubleref(&&48);
+	assert_eq!(dynbox.get(), 48);
 }
 
 #[test]
