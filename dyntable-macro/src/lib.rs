@@ -81,6 +81,7 @@ mod process {
 		ExprCall,
 		ExprCast,
 		ExprField,
+		ExprLet,
 		ExprMethodCall,
 		ExprParen,
 		ExprPath,
@@ -113,6 +114,7 @@ mod process {
 		PatIdent,
 		PatPath,
 		PatType,
+		PatWild,
 		Path,
 		PathArguments,
 		PathSegment,
@@ -1645,78 +1647,47 @@ mod process {
 				},
 				block: Box::new(Block {
 					brace_token: Default::default(),
-					stmts: vec![
-						Stmt::Semi(
-							Expr::Call(ExprCall {
+					stmts: vec![Stmt::Semi(
+						Expr::Let(ExprLet {
+							attrs: Vec::new(),
+							let_token: Default::default(),
+							pat: Pat::Wild(PatWild {
 								attrs: Vec::new(),
-								paren_token: Default::default(),
+								underscore_token: Default::default(),
+							}),
+							eq_token: Default::default(),
+							expr: Box::new(Expr::Call(ExprCall {
+								attrs: Vec::new(),
 								func: Box::new(Expr::Path(ExprPath {
 									attrs: Vec::new(),
 									qself: None,
-									path: path!(::core::ptr::drop_in_place),
+									path: path!(::std::boxed::Box::from_raw),
 								})),
-								args: [Expr::Path(ExprPath {
+								paren_token: Default::default(),
+								args: [Expr::Cast(ExprCast {
 									attrs: Vec::new(),
-									qself: None,
-									path: path!(ptr),
+									expr: Box::new(Expr::Path(ExprPath {
+										attrs: Vec::new(),
+										qself: None,
+										path: path!(ptr),
+									})),
+									as_token: Default::default(),
+									ty: Box::new(Type::Ptr(TypePtr {
+										star_token: Default::default(),
+										const_token: None,
+										mutability: Some(Default::default()),
+										elem: Box::new(Type::Path(TypePath {
+											qself: None,
+											path: path!(T),
+										})),
+									})),
 								})]
 								.into_iter()
 								.collect(),
-							}),
-							<Token![;]>::default(),
-						),
-						Stmt::Semi(
-							Expr::Call(ExprCall {
-								attrs: Vec::new(),
-								paren_token: Default::default(),
-								func: Box::new(Expr::Path(ExprPath {
-									attrs: Vec::new(),
-									qself: None,
-									path: path!(::std::alloc::dealloc),
-								})),
-								args: [
-									Expr::Cast(ExprCast {
-										attrs: Vec::new(),
-										as_token: Default::default(),
-										expr: Box::new(Expr::Path(ExprPath {
-											attrs: Vec::new(),
-											qself: None,
-											path: path!(ptr),
-										})),
-										ty: Box::new(Type::Ptr(TypePtr {
-											star_token: Default::default(),
-											const_token: None,
-											mutability: Some(Default::default()),
-											elem: Box::new(Type::Path(TypePath {
-												qself: None,
-												path: path!(u8),
-											})),
-										})),
-									}),
-									Expr::Call(ExprCall {
-										attrs: Vec::new(),
-										paren_token: Default::default(),
-										func: Box::new(Expr::Path(ExprPath {
-											attrs: Vec::new(),
-											qself: None,
-											path: path!(
-												::core::alloc::Layout::new[GenericArgument::Type(
-													Type::Path(TypePath {
-														qself: None,
-														path: path!(T),
-													})
-												)]
-											),
-										})),
-										args: Punctuated::new(),
-									}),
-								]
-								.into_iter()
-								.collect(),
-							}),
-							<Token![;]>::default(),
-						),
-					],
+							})),
+						}),
+						<Token![;]>::default(),
+					)],
 				}),
 			})
 		}
