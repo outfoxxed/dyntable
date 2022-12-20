@@ -305,11 +305,13 @@ mod process {
 
 		for supertrait in supertraits {
 			if let TypeParamBound::Trait(TraitBound { path, .. }) = supertrait {
-				supertables.push(graph_supertables(
-					path,
-					&supertable_map,
-					&mut used_supertables,
-				));
+				if supertable_map.contains_key(&path) {
+					supertables.push(graph_supertables(
+						path,
+						&supertable_map,
+						&mut used_supertables,
+					));
+				}
 			}
 		}
 
