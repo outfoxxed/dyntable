@@ -10,6 +10,10 @@ pub mod __private {
 
 	use crate::{Dyn, DynTable, VTable, VTableRepr};
 
+	/// Trait that implies nothing, used for `VTable::Bounds`
+	/// when no bounds are required
+	pub trait NoBounds {}
+
 	#[inline]
 	pub fn dyn_vtable<V: VTableRepr + ?Sized>(r#dyn: &Dyn<V>) -> *const V::VTable {
 		r#dyn.vtable
@@ -48,7 +52,12 @@ pub unsafe trait DynTable<'v, V: 'v + VTable> {
 }
 
 /// Marker trait for structs that are VTables
-pub unsafe trait VTable {}
+pub unsafe trait VTable {
+	/// Additional traits that a `Dyn<VTable>` can implement.
+	///
+	/// Currently used for Send and Sync.
+	type Bounds: ?Sized;
+}
 
 /// Trait used to drop objects behind a dyntable.
 ///
@@ -81,6 +90,9 @@ pub struct Dyn<V: VTableRepr + ?Sized> {
 	vtable: *const V::VTable,
 	dynptr: *mut c_void,
 }
+
+unsafe impl<V: VTableRepr + ?Sized> Send for Dyn<V> where <V::VTable as VTable>::Bounds: Send {}
+unsafe impl<V: VTableRepr + ?Sized> Sync for Dyn<V> where <V::VTable as VTable>::Bounds: Sync {}
 
 /// Alternate form of &Dyn used to keep the vtable reference available
 #[repr(C)]
@@ -215,10 +227,7 @@ extern crate self as dyntable;
 
 // testing the macro, not marked #[cfg(test)] so cargo expand works
 mod test_macro {
-	use std::{
-		ffi::c_void,
-		ops::{Add, Sub},
-	};
+	use std::ops::{Add, Sub};
 
 	use dyntable_macro::dyntable;
 
@@ -293,265 +302,5 @@ mod test_macro {
 		dynbox.decrement(22);
 
 		println!("Num: {}", dynbox.get());
-	}
-}
-
-#[cfg(test)]
-mod test {
-	use std::{
-		ffi::c_void,
-		ops::{Add, Sub},
-	};
-
-	use crate::{DropTable, Dyn, DynBox, DynTable, SubTable, VTable, VTableRepr};
-
-	trait Incrementable<'lt, T: Add> {
-		fn increment(&mut self, amount: &'lt T);
-	}
-
-	trait Decrementable<T: Sub> {
-		fn decrement(&mut self, amount: T);
-	}
-
-	trait IncDec<'lt, T: Add + Sub>: Incrementable<'lt, T> + Decrementable<T> {}
-
-	trait Get<'lt, T: Add + Sub>: IncDec<'lt, T> {
-		fn get(&self) -> T;
-	}
-
-	struct IncrementableVTable<T: Add + 'static> {
-		drop: unsafe extern "C" fn(*mut c_void),
-		increment: fn(*mut c_void, *const T),
-	}
-
-	struct DecrementableVTable<T: Sub + 'static> {
-		drop: unsafe extern "C" fn(*mut c_void),
-		decrement: fn(*mut c_void, T),
-	}
-
-	struct IncDecVTable<T: Add + Sub + 'static> {
-		drop: unsafe extern "C" fn(*mut c_void),
-		increment_vtable: IncrementableVTable<T>,
-		decrement_vtable: DecrementableVTable<T>,
-	}
-
-	struct GetVTable<T: Add + Sub + 'static> {
-		drop: unsafe extern "C" fn(*mut c_void),
-		incdec_vtable: IncDecVTable<T>,
-		get: fn(*const c_void) -> T,
-	}
-
-	unsafe impl<T: Add> VTable for IncrementableVTable<T> {}
-	unsafe impl<T: Sub> VTable for DecrementableVTable<T> {}
-	unsafe impl<T: Add + Sub> VTable for IncDecVTable<T> {}
-	unsafe impl<T: Add + Sub> VTable for GetVTable<T> {}
-
-	unsafe impl<T: Add> DropTable for IncrementableVTable<T> {
-		unsafe fn virtual_drop(&self, instance: *mut c_void) {
-			(self.drop)(instance)
-		}
-	}
-
-	unsafe impl<T: Sub> DropTable for DecrementableVTable<T> {
-		unsafe fn virtual_drop(&self, instance: *mut c_void) {
-			(self.drop)(instance)
-		}
-	}
-
-	unsafe impl<T: Add + Sub> DropTable for IncDecVTable<T> {
-		unsafe fn virtual_drop(&self, instance: *mut c_void) {
-			(self.drop)(instance)
-		}
-	}
-
-	unsafe impl<T: Add + Sub> DropTable for GetVTable<T> {
-		unsafe fn virtual_drop(&self, instance: *mut c_void) {
-			(self.drop)(instance)
-		}
-	}
-
-	impl<'lt, T: Add + Sub>
-		SubTable<<(dyn Incrementable<'static, T> + 'static) as VTableRepr>::VTable> for IncDecVTable<T>
-	{
-		fn subtable(&self) -> &<(dyn Incrementable<'static, T> + 'static) as VTableRepr>::VTable {
-			&self.increment_vtable
-		}
-	}
-
-	impl<'lt, T: Add + Sub> SubTable<<(dyn Decrementable<T> + 'static) as VTableRepr>::VTable>
-		for IncDecVTable<T>
-	{
-		fn subtable(&self) -> &<(dyn Decrementable<T> + 'static) as VTableRepr>::VTable {
-			&self.decrement_vtable
-		}
-	}
-
-	impl<'lt, T: Add + Sub> SubTable<<(dyn IncDec<'static, T> + 'static) as VTableRepr>::VTable>
-		for GetVTable<T>
-	{
-		fn subtable(&self) -> &<(dyn IncDec<'static, T> + 'static) as VTableRepr>::VTable {
-			&self.incdec_vtable
-		}
-	}
-
-	impl<'lt, T: Add + Sub>
-		SubTable<<(dyn Incrementable<'static, T> + 'static) as VTableRepr>::VTable> for GetVTable<T>
-	{
-		fn subtable(&self) -> &<(dyn Incrementable<'static, T> + 'static) as VTableRepr>::VTable {
-			SubTable::<<dyn IncDec<'static, T> as VTableRepr>::VTable>::subtable(self).subtable()
-		}
-	}
-
-	impl<'lt, T: Add + Sub> SubTable<<(dyn Decrementable<T> + 'static) as VTableRepr>::VTable>
-		for GetVTable<T>
-	{
-		fn subtable(&self) -> &<(dyn Decrementable<T> + 'static) as VTableRepr>::VTable {
-			SubTable::<<dyn IncDec<'static, T> as VTableRepr>::VTable>::subtable(self).subtable()
-		}
-	}
-
-	unsafe extern "C" fn c_drop<D>(ptr: *mut c_void) {
-		std::ptr::drop_in_place(ptr);
-		std::alloc::dealloc(ptr as *mut u8, std::alloc::Layout::new::<D>());
-	}
-
-	unsafe impl<'lt, T: Add, D: Incrementable<'lt, T>> DynTable<'static, IncrementableVTable<T>> for D {
-		const STATIC_VTABLE: &'static IncrementableVTable<T> = &Self::VTABLE;
-		const VTABLE: IncrementableVTable<T> = IncrementableVTable {
-			drop: c_drop::<D>,
-			increment: unsafe { std::mem::transmute(D::increment as fn(_, _)) },
-		};
-	}
-
-	unsafe impl<T: Sub, D: Decrementable<T>> DynTable<'static, DecrementableVTable<T>> for D {
-		const STATIC_VTABLE: &'static DecrementableVTable<T> = &Self::VTABLE;
-		const VTABLE: DecrementableVTable<T> = DecrementableVTable {
-			drop: c_drop::<D>,
-			decrement: unsafe { std::mem::transmute(D::decrement as fn(_, _)) },
-		};
-	}
-
-	unsafe impl<'lt, T: Add + Sub, D: IncDec<'lt, T>> DynTable<'static, IncDecVTable<T>> for D {
-		const STATIC_VTABLE: &'static IncDecVTable<T> = &Self::VTABLE;
-		const VTABLE: IncDecVTable<T> = IncDecVTable {
-			drop: c_drop::<D>,
-			increment_vtable: <D as DynTable<<dyn Incrementable<T> as VTableRepr>::VTable>>::VTABLE,
-			decrement_vtable: <D as DynTable<<dyn Decrementable<T> as VTableRepr>::VTable>>::VTABLE,
-		};
-	}
-
-	unsafe impl<'lt, T: Add + Sub, D: Get<'lt, T>> DynTable<'static, GetVTable<T>> for D {
-		const STATIC_VTABLE: &'static GetVTable<T> = &Self::VTABLE;
-		const VTABLE: GetVTable<T> = GetVTable {
-			drop: c_drop::<D>,
-			incdec_vtable: <D as DynTable<<dyn IncDec<T> as VTableRepr>::VTable>>::VTABLE,
-			get: unsafe { std::mem::transmute(D::get as fn(_) -> _) },
-		};
-	}
-
-	impl<'lt, T: Add + 'static> VTableRepr for dyn Incrementable<'lt, T> {
-		type VTable = IncrementableVTable<T>;
-	}
-
-	impl<T: Sub + 'static> VTableRepr for dyn Decrementable<T> {
-		type VTable = DecrementableVTable<T>;
-	}
-
-	impl<'lt, T: Add + Sub + 'static> VTableRepr for dyn IncDec<'lt, T> {
-		type VTable = IncDecVTable<T>;
-	}
-
-	impl<'lt, T: Add + Sub + 'static> VTableRepr for dyn Get<'lt, T> {
-		type VTable = GetVTable<T>;
-	}
-
-	impl<'lt, T: Add + 'static, V, R> Incrementable<'lt, T> for Dyn<R>
-	where
-		V: SubTable<<dyn Incrementable<'lt, T> as VTableRepr>::VTable>,
-		R: VTableRepr<VTable = V> + ?Sized,
-	{
-		fn increment(&mut self, amount: &'lt T) {
-			unsafe { ((*self.vtable).subtable().increment)(self.dynptr, amount) }
-		}
-	}
-
-	impl<T: Sub + 'static, V, R> Decrementable<T> for Dyn<R>
-	where
-		V: SubTable<<dyn Decrementable<T> as VTableRepr>::VTable>,
-		R: VTableRepr<VTable = V> + ?Sized,
-	{
-		fn decrement(&mut self, amount: T) {
-			unsafe { ((*self.vtable).subtable().decrement)(self.dynptr, amount) }
-		}
-	}
-
-	impl<'lt, T: Add + Sub + 'static, V, R> IncDec<'lt, T> for Dyn<R>
-	where
-		V: SubTable<<dyn IncDec<'lt, T> as VTableRepr>::VTable>
-			+ SubTable<<dyn Incrementable<'lt, T> as VTableRepr>::VTable>
-			+ SubTable<<dyn Decrementable<T> as VTableRepr>::VTable>,
-		R: VTableRepr<VTable = V> + ?Sized,
-	{
-	}
-
-	impl<'lt, T: Add + Sub + 'static, V, R> Get<'lt, T> for Dyn<R>
-	where
-		V: SubTable<<dyn Get<'lt, T> as VTableRepr>::VTable>
-			+ SubTable<<dyn IncDec<'lt, T> as VTableRepr>::VTable>
-			+ SubTable<<dyn Incrementable<'lt, T> as VTableRepr>::VTable>
-			+ SubTable<<dyn Decrementable<T> as VTableRepr>::VTable>,
-		R: VTableRepr<VTable = V> + ?Sized,
-	{
-		fn get(&self) -> T {
-			unsafe {
-				(SubTable::<<dyn Get<'lt, T> as VTableRepr>::VTable>::subtable(&*self.vtable).get)(
-					self.dynptr,
-				)
-			}
-		}
-	}
-
-	#[test]
-	fn test_dyn() {
-		struct NumberHolder {
-			num: i32,
-		}
-
-		impl Incrementable<'_, i32> for NumberHolder {
-			fn increment(&mut self, amount: &i32) {
-				self.num += amount;
-			}
-		}
-
-		impl Decrementable<i32> for NumberHolder {
-			fn decrement(&mut self, amount: i32) {
-				self.num -= amount;
-			}
-		}
-
-		impl IncDec<'_, i32> for NumberHolder {}
-		impl Get<'_, i32> for NumberHolder {
-			fn get(&self) -> i32 {
-				self.num
-			}
-		}
-
-		let mut dynbox: DynBox<dyn Get<'_, i32>> = DynBox::new(NumberHolder { num: 42 });
-
-		println!("Num: {}", dynbox.get());
-
-		dynbox.increment(&69);
-
-		println!("Num: {}", dynbox.get());
-
-		dynbox.decrement(22);
-
-		println!("Num: {}", dynbox.get());
-
-		let normbox = Box::new(NumberHolder { num: 42 });
-		let mut dynbox2 = DynBox::<dyn Get<'_, i32>>::from(normbox);
-
-		dynbox2.increment(&2);
-		println!("Num {}", dynbox2.get());
 	}
 }

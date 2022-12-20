@@ -29,7 +29,7 @@ pub fn dyntable(
 		let mut token_stream = TokenStream::new();
 
 		dyntable.build_vtable()?.to_tokens(&mut token_stream);
-		dyntable.clone().impl_vtable().to_tokens(&mut token_stream);
+		dyntable.impl_vtable(&mut token_stream);
 		dyntable.impl_vtable_repr().to_tokens(&mut token_stream);
 		dyntable
 			.impl_subtable()?
@@ -358,22 +358,6 @@ mod process {
 		})
 	}
 
-	/// Make all lifetimes in a path 'static
-	fn make_path_static(path: &mut Path) {
-		for segment in &mut path.segments {
-			if let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
-				&mut segment.arguments
-			{
-				for arg in args {
-					if let GenericArgument::Lifetime(lt) = arg {
-						if lt.ident.to_string() != "static" {
-							*lt = Lifetime::new("'static", Span::call_site());
-						}
-					}
-				}
-			}
-		}
-	}
 	fn generic_params_into_args(
 		generics: impl IntoIterator<Item = GenericParam>,
 	) -> impl Iterator<Item = GenericArgument> {
@@ -746,8 +730,101 @@ mod process {
 			})
 		}
 
-		pub fn impl_vtable(self) -> ItemImpl {
+		pub fn impl_vtable(&self, tokens: &mut TokenStream) {
 			let vtable_generics = self.dyntrait.generics.clone().strip_dyntable();
+
+			let bounds = if self.dyntrait.supertraits.is_empty() {
+				Punctuated::from_iter([TypeParamBound::Trait(TraitBound {
+					paren_token: None,
+					modifier: TraitBoundModifier::None,
+					lifetimes: None,
+					path: path!(::dyntable::__private::NoBounds),
+				})])
+			} else {
+				let trait_bounds = self
+					.dyntrait
+					.supertraits
+					.clone()
+					.into_iter()
+					.filter_map(|param| match param {
+						TypeParamBound::Trait(TraitBound { path, .. }) => {
+							Some(TypeParamBound::Trait(TraitBound {
+								paren_token: None,
+								modifier: TraitBoundModifier::None,
+								lifetimes: None,
+								path,
+							}))
+						},
+						_ => None,
+					})
+					.collect::<Punctuated<_, _>>();
+
+				if trait_bounds.len() == 1 {
+					trait_bounds
+				} else {
+					let type_ident = Ident::new(
+						&format!("__DynBounds_{}", self.dyntrait.ident.to_string()),
+						Span::call_site(),
+					);
+
+					ItemTrait {
+						attrs: vec![Attribute {
+							pound_token: Default::default(),
+							style: AttrStyle::Outer,
+							bracket_token: Default::default(),
+							path: path!(allow),
+							tokens: {
+								let mut tokens = TokenStream::new();
+
+								Paren {
+									span: Span::call_site(),
+								}
+								.surround(&mut tokens, |tokens| {
+									path!(non_camel_case_types).to_tokens(tokens);
+								});
+
+								tokens
+							},
+						}],
+						vis: Visibility::Inherited,
+						unsafety: None,
+						auto_token: None,
+						trait_token: Default::default(),
+						ident: type_ident.clone(),
+						generics: self.dyntrait.generics.clone().strip_dyntable(),
+						colon_token: Some(Default::default()),
+						supertraits: self.dyntrait.supertraits.clone(),
+						brace_token: Default::default(),
+						items: Vec::new(),
+					}
+					.to_tokens(tokens);
+
+					Punctuated::from_iter([TypeParamBound::Trait(TraitBound {
+						paren_token: None,
+						modifier: TraitBoundModifier::None,
+						lifetimes: None,
+						path: Path {
+							leading_colon: None,
+							segments: [PathSegment {
+								ident: type_ident,
+								arguments: PathArguments::AngleBracketed(
+									AngleBracketedGenericArguments {
+										colon2_token: None,
+										lt_token: Default::default(),
+										gt_token: Default::default(),
+										args: generic_params_into_args(
+											self.dyntrait.generics.params.clone(),
+										)
+										.collect(),
+									},
+								),
+							}]
+							.into_iter()
+							.collect(),
+						},
+					})])
+				}
+			};
 
 			ItemImpl {
 				attrs: Vec::new(),
@@ -758,7 +835,7 @@ mod process {
 				self_ty: Box::new(Type::Path(TypePath {
 					qself: None,
 					path: Path::from(PathSegment {
-						ident: self.vtable_ident,
+						ident: self.vtable_ident.clone(),
 						arguments: path_arguments!(generic_params_into_args(
 							vtable_generics.params.clone()
 						)
@@ -767,8 +844,27 @@ mod process {
 				})),
 				generics: vtable_generics,
 				brace_token: Default::default(),
-				items: Vec::new(),
+				items: vec![ImplItem::Type(ImplItemType {
+					attrs: Vec::new(),
+					vis: Visibility::Inherited,
+					defaultness: None,
+					type_token: Default::default(),
+					ident: Ident::new("Bounds", Span::call_site()),
+					generics: Generics {
+						lt_token: None,
+						gt_token: None,
+						params: Punctuated::new(),
+						where_clause: None,
+					},
+					eq_token: Default::default(),
+					semi_token: Default::default(),
+					ty: Type::TraitObject(TypeTraitObject {
+						dyn_token: Some(Default::default()),
+						bounds,
+					}),
+				})],
 			}
+			.to_tokens(tokens);
 		}
 
 		pub fn impl_vtable_repr(&self) -> ItemImpl {
@@ -1889,6 +1985,43 @@ mod process {
 												[GenericArgument::Type(vtable_path(path))]
 										),
 									})
+								})
+								.collect(),
+						}));
+
+					where_clause
+						.predicates
+						.push(WherePredicate::Type(PredicateType {
+							lifetimes: None,
+							bounded_ty: Type::Path(TypePath {
+								qself: Some(QSelf {
+									lt_token: Default::default(),
+									gt_token: Default::default(),
+									ty: Box::new(Type::Path(TypePath {
+										qself: None,
+										path: path!(__DynSubTables),
+									})),
+									as_token: Default::default(),
+									position: 2,
+								}),
+								path: path!(::dyntable::VTable::Bounds),
+							}),
+							colon_token: Default::default(),
+							bounds: self
+								.dyntrait
+								.supertraits
+								.clone()
+								.into_iter()
+								.filter_map(|supertrait| match supertrait {
+									TypeParamBound::Trait(TraitBound { path, .. }) => {
+										Some(TypeParamBound::Trait(TraitBound {
+											paren_token: None,
+											modifier: TraitBoundModifier::None,
+											lifetimes: None,
+											path,
+										}))
+									},
+									_ => None,
 								})
 								.collect(),
 						}));
