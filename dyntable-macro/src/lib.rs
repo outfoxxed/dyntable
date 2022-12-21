@@ -30,7 +30,7 @@ pub fn dyntable(
 
 		dyntable.build_vtable()?.to_tokens(&mut token_stream);
 		dyntable.impl_vtable(&mut token_stream);
-		dyntable.impl_vtable_repr().to_tokens(&mut token_stream);
+		dyntable.impl_vtable_repr(&mut token_stream);
 		dyntable
 			.impl_subtable()?
 			.into_iter()
@@ -867,8 +867,20 @@ mod process {
 			.to_tokens(tokens);
 		}
 
-		pub fn impl_vtable_repr(&self) -> ItemImpl {
-			ItemImpl {
+		pub fn impl_vtable_repr(&self, tokens: &mut TokenStream) {
+			let vtable_type = Type::Path(TypePath {
+				qself: None,
+				path: Path::from(PathSegment {
+					ident: self.vtable_ident.clone(),
+					arguments: path_arguments!(generic_params_into_args(
+						self.dyntrait.generics.clone().strip_dyntable().params
+					)
+					.collect()),
+				}),
+			});
+
+			let mut make_impl = |additional_bounds: &[Path], vtable_wrapper: Option<Path>| {
+				ItemImpl {
 				attrs: Vec::new(),
 				defaultness: None,
 				unsafety: None,
@@ -893,8 +905,17 @@ mod process {
 							.collect()),
 						}),
 					})]
-					.into_iter()
-					.collect(),
+						.into_iter()
+						.chain(
+							additional_bounds.into_iter()
+								.map(|path| TypeParamBound::Trait(TraitBound {
+									paren_token: None,
+									modifier: TraitBoundModifier::None,
+									lifetimes: None,
+									path: path.clone(),
+								}))
+						)
+						.collect(),
 				})),
 				brace_token: Default::default(),
 				items: vec![ImplItem::Type(ImplItemType {
@@ -910,19 +931,34 @@ mod process {
 						where_clause: None,
 					},
 					eq_token: Default::default(),
-					ty: Type::Path(TypePath {
-						qself: None,
-						path: Path::from(PathSegment {
-							ident: self.vtable_ident.clone(),
-							arguments: path_arguments!(generic_params_into_args(
-								self.dyntrait.generics.clone().strip_dyntable().params
-							)
-							.collect()),
+					ty: match vtable_wrapper {
+						Some(mut wrapper) => Type::Path(TypePath {
+							qself: None,
+							path: {
+								wrapper.segments.last_mut().unwrap().arguments = path_arguments!(<[GenericArgument::Type(vtable_type.clone())]>);
+								wrapper
+							},
 						}),
-					}),
+						None => vtable_type.clone(),
+					},
 					semi_token: Default::default(),
 				})],
-			}
+			}.to_tokens(tokens)
+			};
+
+			make_impl(&[], None);
+			make_impl(
+				&[path!(::core::marker::Send)],
+				Some(path!(::dyntable::__private::SendVTable)),
+			);
+			make_impl(
+				&[path!(::core::marker::Sync)],
+				Some(path!(::dyntable::__private::SyncVTable)),
+			);
+			make_impl(
+				&[path!(::core::marker::Send), path!(::core::marker::Sync)],
+				Some(path!(::dyntable::__private::SendSyncVTable)),
+			);
 		}
 
 		pub fn impl_subtable(&self) -> syn::Result<Vec<ItemImpl>> {
