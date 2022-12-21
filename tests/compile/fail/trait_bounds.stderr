@@ -1,0 +1,99 @@
+error[E0277]: the trait bound `Dyn<__DynRepr>: NonDyntableTrait` is not satisfied
+  --> tests/compile/fail/trait_bounds.rs:14:1
+   |
+14 | #[dyntable]
+   | ^^^^^^^^^^^ the trait `NonDyntableTrait` is not implemented for `Dyn<__DynRepr>`
+   |
+note: required by a bound in `NonDynBound`
+  --> tests/compile/fail/trait_bounds.rs:15:20
+   |
+15 | trait NonDynBound: NonDyntableTrait {}
+   |                    ^^^^^^^^^^^^^^^^ required by this bound in `NonDynBound`
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `(dyn NonDyntableTrait + 'static): VTableRepr` is not satisfied
+  --> tests/compile/fail/trait_bounds.rs:18:1
+   |
+18 | #[dyntable]
+   | ^^^^^^^^^^^ the trait `VTableRepr` is not implemented for `(dyn NonDyntableTrait + 'static)`
+   |
+   = help: the following other types implement trait `VTableRepr`:
+             (dyn DynBoundWithoutClause + 'static)
+             (dyn DynBoundWithoutClause + Send + 'static)
+             (dyn DynBoundWithoutClause + Send + Sync + 'static)
+             (dyn DynBoundWithoutClause + Sync + 'static)
+             (dyn DyntableTrait + 'static)
+             (dyn DyntableTrait + Send + 'static)
+             (dyn DyntableTrait + Send + Sync + 'static)
+             (dyn DyntableTrait + Sync + 'static)
+           and $N others
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Dyn<__DynRepr>: NonDyntableTrait` is not satisfied
+  --> tests/compile/fail/trait_bounds.rs:18:1
+   |
+18 | #[dyntable]
+   | ^^^^^^^^^^^ the trait `NonDyntableTrait` is not implemented for `Dyn<__DynRepr>`
+   |
+note: required by a bound in `NonDynBoundWithClause`
+  --> tests/compile/fail/trait_bounds.rs:19:30
+   |
+19 | trait NonDynBoundWithClause: NonDyntableTrait
+   |                              ^^^^^^^^^^^^^^^^ required by this bound in `NonDynBoundWithClause`
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `__DynSubTables: SubTable<NonDynBoundWithClauseVTable>` is not satisfied
+  --> tests/compile/fail/trait_bounds.rs:18:1
+   |
+18 | #[dyntable]
+   | ^^^^^^^^^^^ the trait `SubTable<NonDynBoundWithClauseVTable>` is not implemented for `__DynSubTables`
+   |
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider further restricting type parameter `__DynSubTables`
+   |
+18 | #[dyntable], __DynSubTables: dyntable::SubTable<NonDynBoundWithClauseVTable>
+   |            +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `__DynSubTables: SubTable<DyntableTraitVTable>` is not satisfied
+  --> tests/compile/fail/trait_bounds.rs:30:1
+   |
+30 | #[dyntable]
+   | ^^^^^^^^^^^ the trait `SubTable<DyntableTraitVTable>` is not implemented for `__DynSubTables`
+   |
+note: required for `Dyn<__DynRepr>` to implement `DyntableTrait`
+  --> tests/compile/fail/trait_bounds.rs:26:1
+   |
+26 | #[dyntable]
+   | ^^^^^^^^^^^
+note: required by a bound in `DynBoundWithoutClause`
+  --> tests/compile/fail/trait_bounds.rs:31:30
+   |
+31 | trait DynBoundWithoutClause: DyntableTrait {}
+   |                              ^^^^^^^^^^^^^ required by this bound in `DynBoundWithoutClause`
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider further restricting type parameter `__DynSubTables`
+   |
+30 | #[dyntable], __DynSubTables: dyntable::SubTable<DyntableTraitVTable>
+   |            +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `__DynSubTables: SubTable<RequiredTraitVTable>` is not satisfied
+  --> tests/compile/fail/trait_bounds.rs:46:1
+   |
+46 | #[dyntable]
+   | ^^^^^^^^^^^ the trait `SubTable<RequiredTraitVTable>` is not implemented for `__DynSubTables`
+   |
+note: required for `Dyn<__DynRepr>` to implement `ImplementedTrait`
+  --> tests/compile/fail/trait_bounds.rs:38:1
+   |
+38 | #[dyntable]
+   | ^^^^^^^^^^^
+note: required by a bound in `MissingExplicitBoundInheritance`
+  --> tests/compile/fail/trait_bounds.rs:47:40
+   |
+47 | trait MissingExplicitBoundInheritance: ImplementedTrait
+   |                                        ^^^^^^^^^^^^^^^^ required by this bound in `MissingExplicitBoundInheritance`
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider further restricting type parameter `__DynSubTables`
+   |
+46 | #[dyntable], __DynSubTables: dyntable::SubTable<RequiredTraitVTable>
+   |            +++++++++++++++++++++++++++++++++++++++++++++++++++++++++

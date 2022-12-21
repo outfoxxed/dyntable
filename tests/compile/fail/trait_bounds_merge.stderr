@@ -1,0 +1,5 @@
+error: exactly one path to an inherited trait bound must be specified (this is a duplicate)
+  --> tests/compile/fail/trait_bounds_merge.rs:29:20
+   |
+29 |     dyn Level1Trait2: BaseTrait,
+   |                       ^^^^^^^^^

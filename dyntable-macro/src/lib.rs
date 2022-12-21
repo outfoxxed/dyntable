@@ -251,6 +251,7 @@ mod process {
 		where_predicates: impl IntoIterator<Item = DynWherePredicate>,
 	) -> syn::Result<Vec<SupertableGraph>> {
 		let mut supertable_map = HashMap::<Path, Option<Punctuated<Path, Token![+]>>>::new();
+		let mut specified_paths = HashSet::<Path>::new();
 
 		// populate supertable map with supertable entries
 		// from the where predicate iterator
@@ -261,6 +262,17 @@ mod process {
 			{
 				match supertable_map.get(&bounded_ty) {
 					None => {
+						for bound in bounds.clone() {
+							if specified_paths.contains(&bound) {
+								return Err(syn::Error::new(
+									bound.span(),
+									"exactly one path to an inherited trait bound must be specified (this is a duplicate)",
+								))
+							} else {
+								specified_paths.insert(bound);
+							}
+						}
+
 						supertable_map.insert(bounded_ty, Some(bounds));
 					},
 					Some(_) => {
@@ -320,7 +332,7 @@ mod process {
 			if !used_supertables.contains(supertable) {
 				return Err(syn::Error::new(
 					supertable.span(),
-					"unused supertable definition",
+					"dyn bound expression has no relation to the defined trait. did you mean to add a bound to the trait or a different supertrait?",
 				))
 			}
 		}
