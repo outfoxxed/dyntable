@@ -399,45 +399,48 @@ mod process {
 		pub fn build_vtable(&self) -> syn::Result<ItemStruct> {
 			let vtable_generics = self.dyntrait.generics.clone().strip_dyntable();
 
+			let mut attributes = vec![Attribute {
+				pound_token: Default::default(),
+				style: AttrStyle::Outer,
+				bracket_token: Default::default(),
+				path: path!(allow),
+				tokens: {
+					let mut tokens = TokenStream::new();
+
+					Paren {
+						span: Span::call_site(),
+					}
+					.surround(&mut tokens, |tokens| {
+						path!(non_snake_case).to_tokens(tokens);
+					});
+
+					tokens
+				},
+			}];
+
+			if let Some(repr) = self.conf.repr.clone() {
+				attributes.push(Attribute {
+					pound_token: Default::default(),
+					style: AttrStyle::Outer,
+					bracket_token: Default::default(),
+					path: path!(repr),
+					tokens: {
+						let mut tokens = TokenStream::new();
+
+						Paren {
+							span: Span::call_site(),
+						}
+						.surround(&mut tokens, |tokens| {
+							Path::from(repr).to_tokens(tokens);
+						});
+
+						tokens
+					},
+				});
+			}
+
 			Ok(ItemStruct {
-				attrs: vec![
-					Attribute {
-						pound_token: Default::default(),
-						style: AttrStyle::Outer,
-						bracket_token: Default::default(),
-						path: path!(repr),
-						tokens: {
-							let mut tokens = TokenStream::new();
-
-							Paren {
-								span: Span::call_site(),
-							}
-							.surround(&mut tokens, |tokens| {
-								Path::from(self.conf.abi.clone()).to_tokens(tokens);
-							});
-
-							tokens
-						},
-					},
-					Attribute {
-						pound_token: Default::default(),
-						style: AttrStyle::Outer,
-						bracket_token: Default::default(),
-						path: path!(allow),
-						tokens: {
-							let mut tokens = TokenStream::new();
-
-							Paren {
-								span: Span::call_site(),
-							}
-							.surround(&mut tokens, |tokens| {
-								path!(non_snake_case).to_tokens(tokens);
-							});
-
-							tokens
-						},
-					},
-				],
+				attrs: attributes,
 				vis: self.dyntrait.vis.clone(),
 				struct_token: Default::default(),
 				ident: self.vtable_ident.clone(),
@@ -2296,6 +2299,7 @@ mod parse {
 
 	#[derive(Debug, Clone)]
 	pub struct AttrConf {
+		pub repr: Option<Ident>,
 		pub abi: Ident,
 		pub drop: Drop,
 	}
@@ -2311,6 +2315,7 @@ mod parse {
 		fn parse(input: ParseStream) -> syn::Result<Self> {
 			enum Option {
 				Abi(Ident),
+				Repr(std::option::Option<Ident>),
 				DropAbi(std::option::Option<Ident>),
 			}
 
@@ -2321,6 +2326,15 @@ mod parse {
 						"abi" => {
 							let _ = input.parse::<Token![=]>()?;
 							Ok(Option::Abi(input.parse::<Ident>()?))
+						},
+						"repr" => {
+							let _ = input.parse::<Token![=]>()?;
+							let repr = input.parse::<Ident>()?;
+							if repr.to_string() == "Rust" {
+								Ok(Option::Repr(None))
+							} else {
+								Ok(Option::Repr(Some(repr)))
+							}
 						},
 						"drop" => {
 							let _ = input.parse::<Token![=]>()?;
@@ -2342,12 +2356,14 @@ mod parse {
 			let options = Punctuated::<Option, Token![,]>::parse_terminated(input)?;
 
 			let mut conf = AttrConf {
+				repr: None,
 				abi: Ident::new("C", Span::call_site()),
 				drop: Drop::FollowAbi,
 			};
 
 			for option in options {
 				match option {
+					Option::Repr(x) => conf.repr = x,
 					Option::Abi(x) => conf.abi = x,
 					Option::DropAbi(Some(x)) => conf.drop = Drop::Abi(x),
 					Option::DropAbi(None) => conf.drop = Drop::None,
