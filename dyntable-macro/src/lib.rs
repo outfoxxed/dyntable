@@ -516,7 +516,21 @@ mod process {
 									))
 								}
 
-								let abi = abi.unwrap_or_else(|| self.abi());
+								let abi = match abi {
+									Some(abi) => Some(abi),
+									None => match &self.conf.abi.to_string() as &str {
+										"Rust" => None,
+										abi => {
+											return Err(syn::Error::new(
+												fn_token.span(),
+												&format!(
+													r#"missing `extern "ABI"` specifier (probably "{}")"#,
+													abi
+												),
+											))
+										},
+									},
+								};
 
 								for param in &generics.params {
 									match param {
@@ -546,7 +560,7 @@ mod process {
 									ty: Type::BareFn(TypeBareFn {
 										lifetimes: None,
 										unsafety,
-										abi: Some(abi),
+										abi,
 										fn_token,
 										paren_token,
 										inputs: inputs
