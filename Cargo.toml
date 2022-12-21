@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies.dyntable-macro]
 path = "dyntable-macro"
+
+
+[dev-dependencies]
+trybuild = "^1"

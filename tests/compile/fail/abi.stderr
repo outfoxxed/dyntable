@@ -1,0 +1,5 @@
+error: missing `extern "ABI"` specifier (probably "C")
+  --> tests/compile/fail/abi.rs:10:2
+   |
+10 |     fn test(&self);
+   |     ^^
