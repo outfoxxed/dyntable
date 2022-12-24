@@ -1,7 +1,12 @@
 //! Parsing code for proc macro options
 
 use proc_macro2::Span;
-use syn::{Ident, parse::{Parse, ParseStream}, Token, punctuated::Punctuated};
+use syn::{
+	parse::{Parse, ParseStream},
+	punctuated::Punctuated,
+	Ident,
+	Token,
+};
 
 #[derive(Debug)]
 pub struct AttributeOptions {
@@ -61,24 +66,29 @@ impl Parse for AttributeOptions {
 				let option_name = input.parse::<Ident>()?;
 				let _ = input.parse::<Token![=]>()?;
 
-				Ok(SpannedAttrOption(option_name.span(), match &option_name.to_string() as &str {
-					"repr" => AttrOption::Repr(input.parse::<StructRepr>()?),
-					"abi" => AttrOption::Abi(input.parse::<FunctionAbi>()?),
-					"drop" => AttrOption::Drop({
-						let abi = input.parse::<Ident>()?;
+				Ok(SpannedAttrOption(
+					option_name.span(),
+					match &option_name.to_string() as &str {
+						"repr" => AttrOption::Repr(input.parse::<StructRepr>()?),
+						"abi" => AttrOption::Abi(input.parse::<FunctionAbi>()?),
+						"drop" => AttrOption::Drop({
+							let abi = input.parse::<Ident>()?;
 
-						match &abi.to_string() as &str {
-							"none" => None,
-							"Rust" => Some(FunctionAbi::Rust),
-							_ => Some(FunctionAbi::Other(abi)),
-						}
-					}),
-					"vtable" => AttrOption::VTableName(input.parse::<Ident>()?),
-					_ => return Err(syn::Error::new(
-						option_name.span(),
-						&format!("Unknown option '{}'", option_name.to_string()),
-					)),
-				}))
+							match &abi.to_string() as &str {
+								"none" => None,
+								"Rust" => Some(FunctionAbi::Rust),
+								_ => Some(FunctionAbi::Other(abi)),
+							}
+						}),
+						"vtable" => AttrOption::VTableName(input.parse::<Ident>()?),
+						_ => {
+							return Err(syn::Error::new(
+								option_name.span(),
+								&format!("Unknown option '{}'", option_name.to_string()),
+							))
+						},
+					},
+				))
 			}
 		}
 
@@ -103,21 +113,24 @@ impl Parse for AttributeOptions {
 				AttrOption::Repr(x) => matches!(option_struct.repr.replace(x), Some(_)),
 				AttrOption::Abi(x) => matches!(option_struct.abi.replace(x), Some(_)),
 				AttrOption::Drop(x) => matches!(option_struct.drop.replace(x), Some(_)),
-				AttrOption::VTableName(x) => matches!(option_struct.vtable_name.replace(x), Some(_)),
+				AttrOption::VTableName(x) => {
+					matches!(option_struct.vtable_name.replace(x), Some(_))
+				},
 			};
 
 			if duplicate {
-				return Err(syn::Error::new(
-					span,
-					"option can only be defined once",
-				))
+				return Err(syn::Error::new(span, "option can only be defined once"))
 			}
 		}
 
 		Ok(AttributeOptions {
 			repr: option_struct.repr.unwrap_or(StructRepr::Rust),
-			abi: option_struct.abi.unwrap_or(FunctionAbi::Other(Ident::new("C", Span::call_site()))),
-			drop: option_struct.drop.unwrap_or(Some(FunctionAbi::Other(Ident::new("C", Span::call_site())))),
+			abi: option_struct
+				.abi
+				.unwrap_or(FunctionAbi::Other(Ident::new("C", Span::call_site()))),
+			drop: option_struct
+				.drop
+				.unwrap_or(Some(FunctionAbi::Other(Ident::new("C", Span::call_site())))),
 			vtable_name: option_struct.vtable_name,
 		})
 	}
