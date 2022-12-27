@@ -29,10 +29,10 @@ use syn::{
 };
 
 use super::absolute_path;
-use crate::parse::{DynTraitBody, Subtable, SubtableEntry, VTableEntry};
+use crate::parse::{DynTraitInfo, Subtable, SubtableEntry, VTableEntry};
 
 /// Build a VTable from the information in a [`DynTraitBody`]
-pub fn build_vtable(trait_body: &DynTraitBody) -> syn::Result<ItemStruct> {
+pub fn build_vtable(trait_body: &DynTraitInfo) -> syn::Result<ItemStruct> {
 	let vtable_entries = trait_body
 		.entries
 		.iter()
@@ -118,7 +118,7 @@ pub fn build_vtable(trait_body: &DynTraitBody) -> syn::Result<ItemStruct> {
 		attrs: attributes,
 		vis: syn::Visibility::Inherited,
 		struct_token: Default::default(),
-		ident: trait_body.ident.clone(),
+		ident: trait_body.dyntrait.ident.clone(),
 		semi_token: None,
 		fields: Fields::Named(FieldsNamed {
 			brace_token: Default::default(),

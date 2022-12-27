@@ -8,54 +8,22 @@ use syn::{
 	Token,
 };
 
+use super::Abi;
+
 #[derive(Debug)]
 pub struct AttributeOptions {
-	pub repr: StructRepr,
-	pub abi: FunctionAbi,
-	pub drop: Option<FunctionAbi>,
+	pub repr: Abi,
+	pub relax_abi: bool,
+	pub drop: Option<Abi>,
 	pub vtable_name: Option<Ident>,
-}
-
-#[derive(Debug)]
-pub enum StructRepr {
-	Rust, // #[repr(Rust)] is not allowed
-	Other(Ident),
-}
-
-#[derive(Debug)]
-pub enum FunctionAbi {
-	Rust,
-	Other(Ident),
-}
-
-impl Parse for StructRepr {
-	fn parse(input: ParseStream) -> syn::Result<Self> {
-		let repr = input.parse::<Ident>()?;
-
-		Ok(match &repr.to_string() as &str {
-			"Rust" => StructRepr::Rust,
-			_ => StructRepr::Other(repr),
-		})
-	}
-}
-
-impl Parse for FunctionAbi {
-	fn parse(input: ParseStream) -> syn::Result<Self> {
-		let abi = input.parse::<Ident>()?;
-
-		Ok(match &abi.to_string() as &str {
-			"Rust" => FunctionAbi::Rust,
-			_ => FunctionAbi::Other(abi),
-		})
-	}
 }
 
 impl Parse for AttributeOptions {
 	fn parse(input: ParseStream) -> syn::Result<Self> {
 		enum AttrOption {
-			Repr(StructRepr),
-			Abi(FunctionAbi),
-			Drop(Option<FunctionAbi>),
+			Repr(Abi),
+			RelaxAbi(bool),
+			Drop(Option<Abi>),
 			VTableName(Ident),
 		}
 
@@ -66,18 +34,30 @@ impl Parse for AttributeOptions {
 				let option_name = input.parse::<Ident>()?;
 				let _ = input.parse::<Token![=]>()?;
 
-				Ok(SpannedAttrOption(
+				Ok(Self(
 					option_name.span(),
 					match &option_name.to_string() as &str {
-						"repr" => AttrOption::Repr(input.parse::<StructRepr>()?),
-						"abi" => AttrOption::Abi(input.parse::<FunctionAbi>()?),
+						"repr" => AttrOption::Repr(Abi::parse_struct_repr(input)?),
+						"relax_abi" => AttrOption::RelaxAbi({
+							let relax_abi = input.parse::<Ident>()?;
+
+							match &relax_abi.to_string() as &str {
+								"true" => true,
+								"false" => false,
+								_ => {
+									return Err(syn::Error::new(
+										option_name.span(),
+										"must be 'true' or 'false'",
+									))
+								},
+							}
+						}),
 						"drop" => AttrOption::Drop({
 							let abi = input.parse::<Ident>()?;
 
 							match &abi.to_string() as &str {
 								"none" => None,
-								"Rust" => Some(FunctionAbi::Rust),
-								_ => Some(FunctionAbi::Other(abi)),
+								_ => Some(Abi::Explicit(abi)),
 							}
 						}),
 						"vtable" => AttrOption::VTableName(input.parse::<Ident>()?),
@@ -95,15 +75,15 @@ impl Parse for AttributeOptions {
 		let options = Punctuated::<SpannedAttrOption, Token![,]>::parse_terminated(input)?;
 
 		struct OptionalOptions {
-			repr: Option<StructRepr>,
-			abi: Option<FunctionAbi>,
-			drop: Option<Option<FunctionAbi>>,
+			repr: Option<Abi>,
+			relax_abi: Option<bool>,
+			drop: Option<Option<Abi>>,
 			vtable_name: Option<Ident>,
 		}
 
 		let mut option_struct = OptionalOptions {
 			repr: None,
-			abi: None,
+			relax_abi: None,
 			drop: None,
 			vtable_name: None,
 		};
@@ -111,7 +91,7 @@ impl Parse for AttributeOptions {
 		for SpannedAttrOption(span, option) in options {
 			let duplicate = match option {
 				AttrOption::Repr(x) => matches!(option_struct.repr.replace(x), Some(_)),
-				AttrOption::Abi(x) => matches!(option_struct.abi.replace(x), Some(_)),
+				AttrOption::RelaxAbi(x) => matches!(option_struct.relax_abi.replace(x), Some(_)),
 				AttrOption::Drop(x) => matches!(option_struct.drop.replace(x), Some(_)),
 				AttrOption::VTableName(x) => {
 					matches!(option_struct.vtable_name.replace(x), Some(_))
@@ -123,14 +103,10 @@ impl Parse for AttributeOptions {
 			}
 		}
 
-		Ok(AttributeOptions {
-			repr: option_struct.repr.unwrap_or(StructRepr::Rust),
-			abi: option_struct
-				.abi
-				.unwrap_or(FunctionAbi::Other(Ident::new("C", Span::call_site()))),
-			drop: option_struct
-				.drop
-				.unwrap_or(Some(FunctionAbi::Other(Ident::new("C", Span::call_site())))),
+		Ok(Self {
+			repr: option_struct.repr.unwrap_or(Abi::new_explicit_c()),
+			relax_abi: option_struct.relax_abi.unwrap_or(false),
+			drop: option_struct.drop.unwrap_or(Some(Abi::new_explicit_c())),
 			vtable_name: option_struct.vtable_name,
 		})
 	}

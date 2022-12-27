@@ -1,8 +1,8 @@
+use proc_macro2::Span;
 use syn::{
-	parse::Parse,
+	parse::ParseStream,
 	punctuated::Punctuated,
 	token,
-	Attribute,
 	Generics,
 	Ident,
 	Path,
@@ -15,31 +15,67 @@ use syn::{
 pub mod attribute;
 pub mod dyntrait;
 
-pub use attribute::AttributeOptions;
+use self::{attribute::AttributeOptions, dyntrait::DynTraitBody};
 
-/// Collection of DynTrait body tokens.
 #[derive(Debug)]
-pub struct DynTraitBody {
-	pub attrs: Vec<Attribute>,
+pub struct DynTraitInfo {
 	pub vis: Visibility,
 	pub unsafety: Option<Token![unsafe]>,
-	pub trait_token: Token![trait],
-	pub ident: Ident,
+	pub vtable: VTableInfo,
+	pub dyntrait: TraitInfo,
+	pub drop: Option<Abi>,
+	pub relax_abi: bool,
 	pub generics: Generics,
+	pub entries: Vec<VTableEntry>,
+}
+
+#[derive(Debug)]
+pub struct VTableInfo {
+	pub repr: Abi,
+	pub name: Ident,
+}
+
+#[derive(Debug)]
+pub struct TraitInfo {
+	pub ident: Ident,
+	pub trait_token: Token![trait],
 	pub colon_token: Option<Token![:]>,
 	pub supertraits: Punctuated<TypeParamBound, Token![+]>,
 	pub brace_token: token::Brace,
-	pub entries: Vec<VTableEntry>,
+}
+
+#[derive(Debug)]
+pub enum Abi {
+	ImplicitRust,
+	Explicit(Ident),
+}
+
+impl Abi {
+	fn new_explicit_c() -> Abi {
+		Abi::Explicit(Ident::new("C", Span::call_site()))
+	}
+
+	/// Structs are not allowed to have an explicit repr, so
+	/// an explicitly specified rust repr will be converted to
+	/// an implicit one.
+	fn parse_struct_repr(input: ParseStream) -> syn::Result<Abi> {
+		let abi = input.parse::<Ident>()?;
+
+		Ok(match &abi.to_string() as &str {
+			"Rust" => Abi::ImplicitRust,
+			_ => Abi::Explicit(abi),
+		})
+	}
 }
 
 /// DynTrait VTable entry
 #[derive(Debug)]
 pub enum VTableEntry {
-	/// # Note:
-	/// Subtables are represented as VTable entries
-	/// instead of a seperate list to allow positioning
-	/// them differently within a DynTrait's VTable if
-	/// another representation is added which allows that (struct form)
+	// Note:
+	// Subtables are represented as VTable entries
+	// instead of a seperate list to allow positioning
+	// them differently within a DynTrait's VTable if
+	// another representation is added which allows that (struct form)
 	Subtable(SubtableEntry),
 	Method(TraitItemMethod),
 }
@@ -64,17 +100,51 @@ pub struct SubtableEntry {
 #[derive(Debug)]
 pub struct Subtable {
 	pub path: Path,
-	/// # Note:
-	/// The subtable graph is resolved in parsing as it
-	/// may be represented differently depending on the
-	/// form of the annotated item.
+	// Note:
+	// The subtable graph is resolved in parsing as it
+	// may be represented differently depending on the
+	// form of the annotated item.
 	pub subtables: Vec<Subtable>,
 }
 
-impl Parse for DynTraitBody {
-	fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-		// currently the only structure that can be annotated
-		// is a trait.
-		dyntrait::parse_trait(input)
+impl DynTraitInfo {
+	pub fn parse_trait(
+		attr: proc_macro::TokenStream,
+		item: proc_macro::TokenStream,
+	) -> syn::Result<Self> {
+		let attr_options = syn::parse::<AttributeOptions>(attr)?;
+		let trait_body = syn::parse::<DynTraitBody>(item)?;
+
+		Ok(Self {
+			vis: trait_body.vis,
+			unsafety: trait_body.unsafety,
+			vtable: VTableInfo {
+				repr: attr_options.repr,
+				name: Ident::new(
+					// VTable name's span should match trait name's span
+					&match attr_options.vtable_name {
+						Some(ident) => ident.to_string(),
+						None => format!("{}VTable", &trait_body.ident.to_string()),
+					},
+					trait_body.ident.span(),
+				),
+			},
+			dyntrait: TraitInfo {
+				ident: trait_body.ident,
+				trait_token: trait_body.trait_token,
+				colon_token: trait_body.colon_token,
+				supertraits: trait_body.supertraits,
+				brace_token: trait_body.brace_token,
+			},
+			drop: attr_options.drop,
+			relax_abi: attr_options.relax_abi,
+			generics: trait_body.generics,
+			entries: trait_body
+				.subtables
+				.into_iter()
+				.map(VTableEntry::Subtable)
+				.chain(trait_body.methods.into_iter().map(VTableEntry::Method))
+				.collect(),
+		})
 	}
 }

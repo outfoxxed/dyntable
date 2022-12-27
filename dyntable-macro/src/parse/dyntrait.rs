@@ -4,107 +4,131 @@ use std::collections::{HashMap, HashSet};
 
 use proc_macro2::Span;
 use syn::{
-	parse::ParseStream,
+	parse::{Parse, ParseStream},
 	punctuated::Punctuated,
 	spanned::Spanned,
+	token,
+	Attribute,
+	Generics,
 	Ident,
 	Path,
 	Token,
 	TraitBound,
 	TraitItem,
+	TraitItemMethod,
 	TypeParamBound,
+	Visibility,
 };
 
 use self::parse::{DynTrait, DynWherePredicateSupertrait};
-use super::{DynTraitBody, Subtable};
-use crate::parse::{SubtableEntry, VTableEntry};
+use super::Subtable;
+use crate::parse::SubtableEntry;
 
-pub fn parse_trait(input: ParseStream) -> syn::Result<DynTraitBody> {
-	let dyntrait = input.parse::<DynTrait>()?;
+/// Validated #[dyntable] trait AST tokens
+#[derive(Debug)]
+pub struct DynTraitBody {
+	pub attrs: Vec<Attribute>,
+	pub vis: Visibility,
+	pub unsafety: Option<Token![unsafe]>,
+	pub trait_token: Token![trait],
+	pub ident: Ident,
+	pub generics: Generics,
+	pub colon_token: Option<Token![:]>,
+	pub supertraits: Punctuated<TypeParamBound, Token![+]>,
+	pub subtables: Vec<SubtableEntry>,
+	pub brace_token: token::Brace,
+	pub methods: Vec<TraitItemMethod>,
+}
 
-	let subtables = solve_subtables(
-		dyntrait.supertraits.iter().filter_map(|bound| match bound {
-			TypeParamBound::Trait(t) => Some(t.clone()),
-			_ => None,
-		}),
-		dyntrait
-			.generics
-			.where_clause
-			.as_ref()
-			.map(|where_clause| where_clause.predicates.clone())
-			.unwrap_or_else(|| Punctuated::new())
-			.into_iter()
-			.filter_map(|predicate| match predicate {
-				parse::DynWherePredicate::Dyn(predicate) => Some(predicate),
+impl Parse for DynTraitBody {
+	fn parse(input: ParseStream) -> syn::Result<Self> {
+		let dyntrait = input.parse::<DynTrait>()?;
+
+		let subtables = solve_subtables(
+			dyntrait.supertraits.iter().filter_map(|bound| match bound {
+				TypeParamBound::Trait(t) => Some(t.clone()),
 				_ => None,
 			}),
-	)?;
+			dyntrait
+				.generics
+				.where_clause
+				.as_ref()
+				.map(|where_clause| where_clause.predicates.clone())
+				.unwrap_or_else(|| Punctuated::new())
+				.into_iter()
+				.filter_map(|predicate| match predicate {
+					parse::DynWherePredicate::Dyn(predicate) => Some(predicate),
+					_ => None,
+				}),
+		)?;
 
-	let mut elements = Vec::<VTableEntry>::new();
+		let subtable_entries = {
+			// Keeps track of the number of times a "friendly name" of a trait
+			// is used to avoid having to use name mangling.
+			let mut used_vtable_names = HashMap::<String, u32>::new();
 
-	// Add VTable entries for direct subtables
-	{
-		// Keeps track of the number of times a "friendly name" of a trait
-		// is used to avoid having to use name mangling.
-		let mut used_vtable_names = HashMap::<String, u32>::new();
+			subtables
+				.into_iter()
+				.map(|subtable| {
+					// "friendly name" of a trait.
+					// `foo::Bar<Baz>` becomes `Bar`
+					let bound_name = subtable.path.segments.last()
+						// under what circumstanced would you type `trait MyTrait: :: {}`
+						.ok_or_else(|| syn::Error::new(
+							subtable.path.span(),
+							"not a valid path",
+						))?
+						.ident
+						.to_string();
 
-		for subtable in subtables {
-			// "friendly name" of a trait.
-			// `foo::Bar<Baz>` becomes `Bar`
-			let bound_name = subtable.path.segments.last()
-				// under what circumstanced would you type `trait MyTrait: :: {}`
-				.ok_or_else(|| syn::Error::new(
-					subtable.path.span(),
-					"not a valid path",
-				))?
-				.ident
-				.to_string();
+					let name = match used_vtable_names.get(&bound_name) {
+						Some(&(mut count)) => {
+							count += 1;
+							let entry_name = format!("__vtable_{}{}", &bound_name, count);
+							used_vtable_names.insert(bound_name, count);
+							entry_name
+						},
+						None => {
+							let entry_name = format!("__vtable_{}", &bound_name);
+							used_vtable_names.insert(bound_name, 1);
+							entry_name
+						},
+					};
 
-			let name = match used_vtable_names.get(&bound_name) {
-				Some(&(mut count)) => {
-					count += 1;
-					let entry_name = format!("__vtable_{}{}", &bound_name, count);
-					used_vtable_names.insert(bound_name, count);
-					entry_name
-				},
-				None => {
-					let entry_name = format!("__vtable_{}", &bound_name);
-					used_vtable_names.insert(bound_name, 1);
-					entry_name
-				},
-			};
-
-			elements.push(VTableEntry::Subtable(SubtableEntry {
-				ident: Ident::new(&name, Span::call_site()),
-				subtable,
-			}));
-		}
-	}
-
-	// Add VTable entries for trait methods
-	for item in dyntrait.items {
-		let TraitItem::Method(method) = item else {
-			return Err(syn::Error::new(
-				item.span(),
-				"only method definitions are allowed in #[dyntable] annotated traits",
-			))
+					Ok(SubtableEntry {
+						ident: Ident::new(&name, Span::call_site()),
+						subtable,
+					})
+				})
+				.collect::<syn::Result<Vec<_>>>()?
 		};
 
-		elements.push(VTableEntry::Method(method));
-	}
+		let methods = dyntrait
+			.items
+			.into_iter()
+			.map(|item| match item {
+				TraitItem::Method(method) => Ok(method),
+				item => Err(syn::Error::new(
+					item.span(),
+					"only method defintions are allowed in #[dyntable] annotated traits",
+				)),
+			})
+			.collect::<syn::Result<Vec<_>>>()?;
 
-	Ok(DynTraitBody {
-		attrs: dyntrait.attrs,
-		vis: dyntrait.vis,
-		unsafety: dyntrait.unsafety,
-		trait_token: dyntrait.trait_token,
-		ident: dyntrait.ident,
-		generics: dyntrait.generics.strip_dyntable(),
-		colon_token: dyntrait.colon_token,
-		supertraits: dyntrait.supertraits,
-		brace_token: dyntrait.brace_token,
-		entries: elements,
-	})
+		Ok(Self {
+			attrs: dyntrait.attrs,
+			vis: dyntrait.vis,
+			unsafety: dyntrait.unsafety,
+			trait_token: dyntrait.trait_token,
+			ident: dyntrait.ident,
+			generics: dyntrait.generics.strip_dyntable(),
+			colon_token: dyntrait.colon_token,
+			supertraits: dyntrait.supertraits,
+			subtables: subtable_entries,
+			brace_token: dyntrait.brace_token,
+			methods,
+		})
+	}
 }
 
 /// Build a list of subtable graphs from trait bounds
