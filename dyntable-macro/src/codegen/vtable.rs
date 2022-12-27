@@ -1,11 +1,9 @@
 //! VTable generation code
 
-use proc_macro2::{Ident, Span, TokenStream};
-use quote::ToTokens;
+use proc_macro2::{Ident, Span};
 use syn::{
 	punctuated::Punctuated,
 	spanned::Spanned,
-	token::Paren,
 	AttrStyle,
 	Attribute,
 	BareFnArg,
@@ -29,7 +27,7 @@ use syn::{
 };
 
 use super::absolute_path;
-use crate::parse::{DynTraitInfo, Subtable, SubtableEntry, VTableEntry};
+use crate::parse::{Abi, DynTraitInfo, Subtable, SubtableEntry, VTableEntry};
 
 /// Build a VTable from the information in a [`DynTraitBody`]
 pub fn build_vtable(trait_body: &DynTraitInfo) -> syn::Result<ItemStruct> {
@@ -94,25 +92,23 @@ pub fn build_vtable(trait_body: &DynTraitInfo) -> syn::Result<ItemStruct> {
 		})
 		.collect::<Result<Punctuated<_, _>, _>>()?;
 
-	// TODO: add #[repr] when applicable
-	let attributes = vec![Attribute {
+	let mut attributes = vec![Attribute {
 		pound_token: Default::default(),
 		style: AttrStyle::Outer,
 		bracket_token: Default::default(),
 		path: Path::from(Ident::new("allow", Span::call_site())),
-		tokens: {
-			let mut tokens = TokenStream::new();
-
-			Paren {
-				span: Span::call_site(),
-			}
-			.surround(&mut tokens, |tokens| {
-				Path::from(Ident::new("non_snake_case", Span::call_site())).to_tokens(tokens)
-			});
-
-			tokens
-		},
+		tokens: quote::quote! { (non_snake_case) },
 	}];
+
+	if let Abi::Explicit(repr) = &trait_body.vtable.repr {
+		attributes.push(Attribute {
+			pound_token: Default::default(),
+			style: AttrStyle::Outer,
+			bracket_token: Default::default(),
+			path: Path::from(Ident::new("repr", Span::call_site())),
+			tokens: quote::quote! { (#repr) },
+		});
+	}
 
 	Ok(ItemStruct {
 		attrs: attributes,
