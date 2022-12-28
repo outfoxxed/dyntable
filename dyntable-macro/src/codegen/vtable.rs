@@ -29,7 +29,7 @@ use syn::{
 use super::absolute_path;
 use crate::parse::{Abi, DynTraitInfo, Subtable, SubtableEntry, VTableEntry};
 
-/// Build a VTable from the information in a [`DynTraitBody`]
+/// Build a VTable from the information in a [`DynTraitInfo`]
 pub fn build_vtable(trait_body: &DynTraitInfo) -> syn::Result<ItemStruct> {
 	let vtable_entries = trait_body
 		.entries

@@ -4,6 +4,7 @@ use proc_macro2::Span;
 use syn::{Ident, Path, PathSegment};
 
 pub mod vtable;
+pub mod vtable_impl;
 
 /// Build an absolute path from a list of segments.
 ///

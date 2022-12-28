@@ -13,7 +13,11 @@ pub fn dyntable(
 	dbg!(&info);
 
 	let vtable = codegen::vtable::build_vtable(&info).unwrap();
-	dbg!(vtable.to_token_stream().to_string());
+	let trait_impls = codegen::vtable_impl::impl_vtable_trait(&info);
+	dbg!(
+		vtable.to_token_stream().to_string(),
+		trait_impls.to_token_stream().to_string()
+	);
 
 	todo!()
 }
