@@ -5,6 +5,7 @@ use syn::{Ident, Path, PathSegment};
 
 pub mod vtable;
 pub mod vtable_impl;
+pub mod dyntable;
 
 /// Build an absolute path from a list of segments.
 ///
