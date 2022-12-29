@@ -40,10 +40,11 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		.collect::<Vec<_>>();
 
 	let trait_bounds = match dyntrait.dyntrait.supertraits.is_empty() {
-		true => None,
-		false => Some(&dyntrait.dyntrait.supertraits),
+		true => Vec::new(),
+		false => vec![&dyntrait.dyntrait.supertraits],
 	}
-	.into_iter();
+	.into_iter()
+	.collect::<Vec<_>>();
 
 	let trait_entries = dyntrait.entries.iter().flat_map(|entry| match entry {
 		VTableEntry::Method(method) => Some(method),
@@ -52,10 +53,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 	// Trait bounds that may be assumed to be applied to a
 	// type associated with the generated VTable.
-	let vtable_bounds = if dyntrait.dyntrait.supertraits.is_empty() {
-		quote::quote! { ::dyntable::__private::NoBounds }
-	} else {
-		dyntrait
+	let (vtable_bound_trait, vtable_bounds) = {
+		let bounds = dyntrait
 			.dyntrait
 			.supertraits
 			.iter()
@@ -63,8 +62,23 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				TypeParamBound::Trait(TraitBound { path, .. }) => Some(path),
 				_ => None,
 			})
-			.collect::<Punctuated<_, Token![+]>>()
-			.to_token_stream()
+			.collect::<Punctuated<_, Token![+]>>();
+
+		match bounds.len() {
+			0 => (None, quote::quote! { ::dyntable::__private::NoBounds }),
+			1 => (None, bounds.to_token_stream()),
+			_ => {
+				let bound_ident = format_ident!("__DynBounds_{}", ident);
+				let bounds = bounds.iter();
+				(
+					Some(quote::quote! {
+						#[allow(non_camel_case_types)]
+						trait #bound_ident #ty_generics: #(#bounds)+* {}
+					}),
+					bound_ident.to_token_stream(),
+				)
+			},
+		}
 	};
 
 	let vtable_entries = dyntrait.entries.iter().map(|entry| match entry {
@@ -185,7 +199,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 					fn subtable(&self) ->
 						&<(dyn #subtable_path + 'static) as ::dyntable::VTableRepr>::VTable
 					{
-						self.#subtable_ident
+						&self.#subtable_ident
 					}
 				}
 
@@ -196,11 +210,13 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 	// Default entries for the generated VTable
 	let impl_vtable_entries = dyntrait.entries.iter().map(|entry| match entry {
-		VTableEntry::Subtable(subtable) => {
-			let entry_name = &subtable.ident;
+		VTableEntry::Subtable(SubtableEntry {
+			ident,
+			subtable: Subtable { path, .. },
+		}) => {
 			quote::quote! {
-				#entry_name: <__DynTarget as ::dyntable::DynTable<
-					<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
+				#ident: <__DynTarget as ::dyntable::DynTable<
+					<(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable,
 				>>::VTABLE
 			}
 		},
@@ -288,14 +304,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 			let inputs = inputs.iter();
 
-			let output = match output {
-				syn::ReturnType::Default => None,
-				syn::ReturnType::Type(_, ty) => Some(strip_references(ty.as_ref().clone())),
-			}
-			.into_iter();
-
 			quote::quote! {
-				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#(#inputs),*) #( -> #output)*
+				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#(#inputs),*) #output
 				#fn_where_clause {
 					unsafe {
 						#reborrow (::dyntable::SubTable::<
@@ -314,6 +324,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			#(#trait_entries)*
 		}
 
+		#[allow(non_snake_case)]
 		struct #vtable_ident #ty_generics
 		#where_clause {
 			#(#vtable_entries,)*
@@ -321,7 +332,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			__generics: ::core::marker::PhantomData<#vtable_phantom_generics>
 		}
 
-		impl #impl_generics ::dyntable::VTable for #vtable_ident #ty_generics
+		#vtable_bound_trait
+		unsafe impl #impl_generics ::dyntable::VTable for #vtable_ident #ty_generics
 		#where_clause {
 			type Bounds = dyn #vtable_bounds;
 		}
@@ -360,15 +372,15 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		unsafe impl<
 			'__dyn_vtable,
 			#(#impl_generic_entries + '__dyn_vtable,)*
-			__DynTarget,
+			__DynTable,
 		> ::dyntable::__private::DynTable2<'__dyn_vtable, #vtable_ident #ty_generics>
-		for ::dyntable::__private::DynImplTarget<__DynTarget, #vtable_ident #ty_generics>
+		for ::dyntable::__private::DynImplTarget<__DynTable, #vtable_ident #ty_generics>
 		where
 			#(#where_predicates,)*
-			__DynTarget: #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>,
+			__DynTable: #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>,
 		{
-			const VTABLE: #vtable_ident #ty_generics = __DynTarget::VTABLE;
-			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics = __DynTarget::STATIC_VTABLE;
+			const VTABLE: #vtable_ident #ty_generics = __DynTable::VTABLE;
+			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics = __DynTable::STATIC_VTABLE;
 		}
 
 		unsafe impl<
@@ -396,7 +408,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				let _ = ::std::boxed::Box::from_raw(ptr as *mut T);
 			}
 
-			unsafe impl #impl_generics ::dyntable::DropTable #ty_generics
+			unsafe impl #impl_generics ::dyntable::DropTable
+			for #vtable_ident #ty_generics
 			#where_clause {
 				unsafe fn virtual_drop(&self, instance: *mut ::core::ffi::c_void) {
 					(self.__drop)(instance)
@@ -416,7 +429,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				#(+ ::dyntable::SubTable<
 					<(dyn #subtable_paths + 'static) as ::dyntable::VTableRepr>::VTable
 				>)*,
-			<__DynSubTables as ::dyntable::VTable>::Bounds: #(#subtable_paths)+*,
+			#(<__DynSubTables as ::dyntable::VTable>::Bounds: #trait_bounds,)*
 			__DynRepr: ::dyntable::VTableRepr<VTable = __DynSubTables> + ?::core::marker::Sized,
 		{
 			#(#dyn_impl_methods)*

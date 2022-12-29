@@ -1,5 +1,3 @@
-use quote::ToTokens;
-
 mod codegen;
 mod parse;
 
@@ -8,13 +6,9 @@ pub fn dyntable(
 	attr: proc_macro::TokenStream,
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-	let info = parse::DynTraitInfo::parse_trait(attr, item).unwrap();
-
-	dbg!(&info);
-
-	let codegen = codegen::codegen(&info);
-
-	dbg!(codegen.to_token_stream().to_string());
-
-	todo!()
+	match parse::DynTraitInfo::parse_trait(attr, item) {
+		Ok(info) => codegen::codegen(&info),
+		Err(err) => err.into_compile_error(),
+	}
+	.into()
 }

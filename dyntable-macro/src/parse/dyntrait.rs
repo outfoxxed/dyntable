@@ -296,7 +296,6 @@ mod parse {
 		GenericParam,
 		Generics,
 		Ident,
-		ItemTrait,
 		Lifetime,
 		LifetimeDef,
 		Path,
@@ -354,38 +353,6 @@ mod parse {
 		pub bounded_ty: Path,
 		pub colon_token: Token![:],
 		pub bounds: Punctuated<Path, Token![+]>,
-	}
-
-	impl DynTrait {
-		/// Strips out all dyntable information, leaving a normal `ItemTrait` struct
-		pub fn strip_dyntable(self) -> ItemTrait {
-			let Self {
-				attrs,
-				vis,
-				unsafety,
-				trait_token,
-				ident,
-				generics,
-				colon_token,
-				supertraits,
-				brace_token,
-				items,
-			} = self;
-
-			ItemTrait {
-				attrs,
-				vis,
-				unsafety,
-				auto_token: None,
-				trait_token,
-				ident,
-				generics: generics.strip_dyntable(),
-				colon_token,
-				supertraits,
-				brace_token,
-				items,
-			}
-		}
 	}
 
 	impl DynGenerics {
