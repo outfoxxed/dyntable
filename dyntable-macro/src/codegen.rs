@@ -237,6 +237,77 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		},
 	});
 
+	let subtable_paths = dyntrait
+		.entries
+		.iter()
+		.filter_map(|entry| match entry {
+			VTableEntry::Method(_) => None,
+			VTableEntry::Subtable(x) => Some(x),
+		})
+		.flat_map(|subtable| subtable.subtable.flatten())
+		.map(|subtable| &subtable.path)
+		.collect::<Vec<_>>();
+
+	let dyn_impl_methods = dyntrait.entries.iter().filter_map(|entry| match entry {
+		VTableEntry::Subtable(_) => None,
+		VTableEntry::Method(TraitItemMethod {
+			sig:
+				Signature {
+					unsafety,
+					abi,
+					fn_token,
+					ident: fn_ident,
+					generics,
+					inputs,
+					//variadic, TODO
+					output,
+					..
+				},
+			..
+		}) => Some({
+			// reborrow if a reference was returned, as it will be a pointer.
+			let reborrow = match output {
+				syn::ReturnType::Type(_, ty) => match ty.as_ref() {
+					Type::Reference(TypeReference {
+						and_token,
+						lifetime,
+						mutability,
+						..
+					}) => quote::quote! { #and_token #mutability #lifetime * },
+					_ => TokenStream::new(),
+				},
+				_ => TokenStream::new(),
+			};
+
+			let (_, fn_ty_generics, fn_where_clause) = generics.split_for_impl();
+
+			let passed_inputs = inputs.iter().filter_map(|arg| match arg {
+				FnArg::Receiver(_) => None,
+				FnArg::Typed(PatType { pat, .. }) => Some(pat),
+			});
+
+			let inputs = inputs.iter();
+
+			let output = match output {
+				syn::ReturnType::Default => None,
+				syn::ReturnType::Type(_, ty) => Some(strip_references(ty.as_ref().clone())),
+			}
+			.into_iter();
+
+			quote::quote! {
+				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#(#inputs),*) #( -> #output)*
+				#fn_where_clause {
+					unsafe {
+						#reborrow (::dyntable::SubTable::<
+							<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
+						>::subtable(&*::dyntable::__private::dyn_vtable(self)).#fn_ident)
+							(::dyntable::__private::dyn_ptr(self), #(#passed_inputs),*)
+					}
+				}
+			}
+		}),
+	});
+
 	quote::quote! {
 		trait #ident #ty_generics #(: #trait_bounds)*
 		#where_clause {
@@ -301,7 +372,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		}
 
 		unsafe impl<
-				'__dyn_vtable,
+			'__dyn_vtable,
 			#(#impl_generic_entries + '__dyn_vtable,)*
 			__DynTarget,
 		> #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>
@@ -332,6 +403,24 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				}
 			}
 		)*
+
+		impl<
+			#(#impl_generic_entries,)*
+			__DynSubTables,
+			__DynRepr,
+		> #ident #ty_generics
+		for ::dyntable::Dyn<__DynRepr>
+		where
+			#(#where_predicates,)*
+			__DynSubTables: ::dyntable::SubTable<#vtable_ident #ty_generics>
+				#(+ ::dyntable::SubTable<
+					<(dyn #subtable_paths + 'static) as ::dyntable::VTableRepr>::VTable
+				>)*,
+			<__DynSubTables as ::dyntable::VTable>::Bounds: #(#subtable_paths)+*,
+			__DynRepr: ::dyntable::VTableRepr<VTable = __DynSubTables> + ?::core::marker::Sized,
+		{
+			#(#dyn_impl_methods)*
+		}
 	}
 }
 

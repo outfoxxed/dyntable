@@ -167,6 +167,20 @@ pub struct SubtableChildGraph<'a> {
 }
 
 impl Subtable {
+	pub fn flatten<'s>(&'s self) -> Vec<&'s Self> {
+		let mut subtables = Vec::<&'s Self>::new();
+		self.flatten_into(&mut subtables);
+		subtables
+	}
+
+	fn flatten_into<'s>(&'s self, subtables: &mut Vec<&'s Self>) {
+		subtables.push(&self);
+
+		for subtable in &self.subtables {
+			subtable.flatten_into(subtables);
+		}
+	}
+
 	/// Flatten subtables of this subtable into a parent-child relation
 	pub fn flatten_child_graph<'s>(&'s self) -> Vec<SubtableChildGraph<'s>> {
 		let mut subtables = Vec::<SubtableChildGraph>::new();
