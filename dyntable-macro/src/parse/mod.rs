@@ -5,6 +5,7 @@ use syn::{
 	token,
 	Generics,
 	Ident,
+	LitStr,
 	Path,
 	Token,
 	TraitItemMethod,
@@ -52,7 +53,7 @@ pub enum Abi {
 
 impl Abi {
 	fn new_explicit_c() -> Abi {
-		Abi::Explicit(Ident::new("C", Span::call_site()))
+		Self::Explicit(Ident::new("C", Span::call_site()))
 	}
 
 	/// Structs are not allowed to have an explicit repr, so
@@ -63,8 +64,18 @@ impl Abi {
 
 		Ok(match &abi.to_string() as &str {
 			"Rust" => Abi::ImplicitRust,
-			_ => Abi::Explicit(abi),
+			_ => Self::Explicit(abi),
 		})
+	}
+
+	pub fn as_abi(&self) -> Option<syn::Abi> {
+		match self {
+			Self::ImplicitRust => None,
+			Self::Explicit(abi) => Some(syn::Abi {
+				extern_token: Default::default(),
+				name: Some(LitStr::new(&abi.to_string(), abi.span())),
+			}),
+		}
 	}
 }
 

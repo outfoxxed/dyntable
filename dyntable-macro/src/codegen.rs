@@ -5,6 +5,8 @@ use quote::{format_ident, ToTokens};
 use syn::{
 	punctuated::Punctuated,
 	FnArg,
+	GenericParam,
+	LifetimeDef,
 	PatType,
 	Receiver,
 	Signature,
@@ -12,12 +14,13 @@ use syn::{
 	TraitBound,
 	TraitItemMethod,
 	Type,
+	TypeParam,
 	TypeParamBound,
 	TypePtr,
 	TypeReference,
 };
 
-use crate::parse::{DynTraitInfo, Subtable, SubtableEntry, VTableEntry};
+use crate::parse::{Abi, DynTraitInfo, Subtable, SubtableEntry, VTableEntry};
 
 /// Generate expanded macro code from trait body
 pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
@@ -114,6 +117,36 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		},
 	});
 
+	let drop_abi = dyntrait
+		.drop
+		.as_ref()
+		.map(Abi::as_abi)
+		.into_iter()
+		.collect::<Vec<_>>();
+	let drop_fn_ident = drop_abi
+		.iter()
+		.map(|_| format_ident!("__{}_drop", ident))
+		.into_iter()
+		.collect::<Vec<_>>();
+	let vtable_phantom_generics = {
+		let generics = impl_generic_entries
+			.iter()
+			.filter_map(|entry| match entry {
+				GenericParam::Lifetime(LifetimeDef { lifetime, .. }) => {
+					Some(quote::quote! { &#lifetime () })
+				},
+				GenericParam::Type(TypeParam { ident, .. }) => Some(ident.to_token_stream()),
+				GenericParam::Const(_) => None,
+			})
+			.collect::<Vec<_>>();
+
+		match generics.len() {
+			1 => quote::quote! { #(#generics),* },
+			// 0 OR more than 1 (0 params = `()`)
+			_ => quote::quote! { (#(#generics),*) },
+		}
+	};
+
 	// Default entries for the generated VTable
 	let impl_vtable_entries = dyntrait.entries.iter().map(|entry| match entry {
 		VTableEntry::Subtable(subtable) => {
@@ -166,6 +199,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		struct #vtable_ident #ty_generics
 		#where_clause {
 			#(#vtable_entries,)*
+			#(__drop: unsafe #drop_abi fn(*mut ::core::ffi::c_void),)*
+			__generics: ::core::marker::PhantomData<#vtable_phantom_generics>
 		}
 
 		impl #impl_generics ::dyntable::VTable for #vtable_ident #ty_generics
@@ -230,8 +265,24 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				&<Self as #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>>::VTABLE;
 			const VTABLE: #vtable_ident #ty_generics = #vtable_ident {
 				#(#impl_vtable_entries,)*
+				#(__drop: #drop_fn_ident::<__DynTarget>,)*
+				__generics: ::core::marker::PhantomData,
 			};
 		}
+
+		#(
+			#[allow(non_snake_case)]
+			unsafe #drop_abi fn #drop_fn_ident<T>(ptr: *mut ::core::ffi::c_void) {
+				let _ = ::std::boxed::Box::from_raw(ptr as *mut T);
+			}
+
+			unsafe impl #impl_generics ::dyntable::DropTable #ty_generics
+			#where_clause {
+				unsafe fn virtual_drop(&self, instance: *mut ::core::ffi::c_void) {
+					(self.__drop)(instance)
+				}
+			}
+		)*
 	}
 }
 
