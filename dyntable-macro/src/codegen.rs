@@ -20,7 +20,7 @@ use syn::{
 	TypeReference,
 };
 
-use crate::parse::{Abi, DynTraitInfo, Subtable, SubtableEntry, VTableEntry};
+use crate::parse::{Abi, DynTraitInfo, Subtable, SubtableChildGraph, SubtableEntry, VTableEntry};
 
 /// Generate expanded macro code from trait body
 pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
@@ -147,6 +147,53 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		}
 	};
 
+	let subtable_impls = dyntrait.entries.iter().filter_map(|entry| match entry {
+		VTableEntry::Method(_) => None,
+		VTableEntry::Subtable(SubtableEntry {
+			ident: subtable_ident,
+			subtable,
+		}) => Some({
+			let child_entries = subtable.flatten_child_graph().into_iter().map(
+				|SubtableChildGraph {
+				     parent: Subtable { path: parent, .. },
+				     child: Subtable { path: child, .. },
+				 }| {
+					quote::quote! {
+						impl #impl_generics
+							::dyntable::SubTable<<(dyn #child + 'static) as ::dyntable::VTableRepr>::VTable>
+						for #vtable_ident #ty_generics
+						#where_clause {
+							fn subtable(&self) ->
+								&<(dyn #child + 'static) as ::dyntable::VTableRepr>::VTable
+							{
+								::dyntable::SubTable::<
+									<(dyn #parent + 'static) as ::dyntable::VTableRepr>::VTable
+								>::subtable(self).subtable()
+							}
+						}
+					}
+				},
+			);
+
+			let subtable_path = &subtable.path;
+
+			quote::quote! {
+				impl #impl_generics
+					::dyntable::SubTable<<(dyn #subtable_path + 'static) as ::dyntable::VTableRepr>::VTable>
+				for #vtable_ident #ty_generics
+				#where_clause {
+					fn subtable(&self) ->
+						&<(dyn #subtable_path + 'static) as ::dyntable::VTableRepr>::VTable
+					{
+						self.#subtable_ident
+					}
+				}
+
+				#(#child_entries)*
+			}
+		}),
+	});
+
 	// Default entries for the generated VTable
 	let impl_vtable_entries = dyntrait.entries.iter().map(|entry| match entry {
 		VTableEntry::Subtable(subtable) => {
@@ -230,6 +277,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		#where_clause {
 			type VTable = ::dyntable::__private::SendSyncVTable<#vtable_ident #ty_generics>;
 		}
+
+		#(#subtable_impls)*
 
 		#[allow(non_camel_case_types)]
 		unsafe trait #proxy_trait<'v, V: 'v + ::dyntable::VTable> {

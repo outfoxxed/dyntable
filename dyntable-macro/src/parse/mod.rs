@@ -159,3 +159,30 @@ impl DynTraitInfo {
 		})
 	}
 }
+
+/// Subtable parent-child relation
+pub struct SubtableChildGraph<'a> {
+	pub parent: &'a Subtable,
+	pub child: &'a Subtable,
+}
+
+impl Subtable {
+	/// Flatten subtables of this subtable into a parent-child relation
+	pub fn flatten_child_graph<'s>(&'s self) -> Vec<SubtableChildGraph<'s>> {
+		let mut subtables = Vec::<SubtableChildGraph>::new();
+		self.flatten_into_child_graph(&mut subtables);
+		subtables
+	}
+
+	/// See `flatten_child_graph`
+	fn flatten_into_child_graph<'s>(&'s self, subtables: &mut Vec<SubtableChildGraph<'s>>) {
+		for subtable in &self.subtables {
+			subtables.push(SubtableChildGraph {
+				parent: &self,
+				child: subtable,
+			});
+
+			subtable.flatten_into_child_graph(subtables);
+		}
+	}
+}
