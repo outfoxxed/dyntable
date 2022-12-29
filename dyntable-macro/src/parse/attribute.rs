@@ -5,6 +5,7 @@ use syn::{
 	parse::{Parse, ParseStream},
 	punctuated::Punctuated,
 	Ident,
+	LitBool,
 	Token,
 };
 
@@ -38,20 +39,7 @@ impl Parse for AttributeOptions {
 					option_name.span(),
 					match &option_name.to_string() as &str {
 						"repr" => AttrOption::Repr(Abi::parse_struct_repr(input)?),
-						"relax_abi" => AttrOption::RelaxAbi({
-							let relax_abi = input.parse::<Ident>()?;
-
-							match &relax_abi.to_string() as &str {
-								"true" => true,
-								"false" => false,
-								_ => {
-									return Err(syn::Error::new(
-										option_name.span(),
-										"must be 'true' or 'false'",
-									))
-								},
-							}
-						}),
+						"relax_abi" => AttrOption::RelaxAbi(input.parse::<LitBool>()?.value),
 						"drop" => AttrOption::Drop({
 							let abi = input.parse::<Ident>()?;
 

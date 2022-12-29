@@ -5,7 +5,12 @@ use dyntable::dyntable;
 
 fn main() {}
 
-#[dyntable(abi = C)]
-trait ImplicitRustAbi {
+#[dyntable]
+trait ImplicitRustAbiImplicitUnrelax {
+	fn test(&self);
+}
+
+#[dyntable(relax_abi = false)]
+trait ImplicitRustAbiExplicitUnrelax {
 	fn test(&self);
 }

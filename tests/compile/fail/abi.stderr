@@ -1,5 +1,11 @@
-error: missing `extern "ABI"` specifier (probably "C")
+error: missing explicit ABI specifier (add `relax_abi = true` to the #[dyntrait] annotation to relax this check)
   --> tests/compile/fail/abi.rs:10:2
    |
 10 |     fn test(&self);
+   |     ^^
+
+error: missing explicit ABI specifier (add `relax_abi = true` to the #[dyntrait] annotation to relax this check)
+  --> tests/compile/fail/abi.rs:15:2
+   |
+15 |     fn test(&self);
    |     ^^

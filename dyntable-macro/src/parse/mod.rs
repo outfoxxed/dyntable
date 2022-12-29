@@ -2,6 +2,7 @@ use proc_macro2::Span;
 use syn::{
 	parse::ParseStream,
 	punctuated::Punctuated,
+	spanned::Spanned,
 	token,
 	Generics,
 	Ident,
@@ -125,6 +126,17 @@ impl DynTraitInfo {
 	) -> syn::Result<Self> {
 		let attr_options = syn::parse::<AttributeOptions>(attr)?;
 		let trait_body = syn::parse::<DynTraitBody>(item)?;
+
+		if !attr_options.relax_abi {
+			for method in &trait_body.methods {
+				if method.sig.abi.is_none() {
+					return Err(syn::Error::new(
+						method.sig.fn_token.span(),
+						"missing explicit ABI specifier (add `relax_abi = true` to the #[dyntrait] annotation to relax this check)",
+					))
+				}
+			}
+		}
 
 		Ok(Self {
 			vis: trait_body.vis,

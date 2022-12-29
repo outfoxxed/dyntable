@@ -7,17 +7,17 @@ use dyntable::dyntable;
 fn main() {}
 
 #[dyntable]
-trait DefaultCAbi {
+trait DefaultExplicit {
 	extern "C" fn test(&self);
 }
 
-#[dyntable(abi = C)]
-trait ExplicitCAbi {
+#[dyntable(relax_abi = false)]
+trait ExplicitUnrelaxed {
 	extern "C" fn test(&self);
 }
 
-#[dyntable(abi = Rust)]
-trait ExplicitRustAbi {
+#[dyntable(relax_abi = true)]
+trait ExplicitRelaxed {
 	fn implicit_abi(&self);
 	extern "Rust" fn explicit_abi(&self);
 }
@@ -32,22 +32,13 @@ trait ExplictCRepr {
 	extern "C" fn test(&self);
 }
 
-#[dyntable(abi = C, repr = C)]
-trait ExplicitCAbiRepr {
+#[dyntable(relax_abi = false, repr = C)]
+trait ExplicitUnrelaxedCRepr {
 	extern "C" fn test(&self);
 }
 
-#[dyntable(abi = Rust, repr = Rust)]
-trait ExplicitRustAbiRepr {
-	extern "Rust" fn test(&self);
-}
-
-#[dyntable]
-trait MismatchedRustAbi {
-	extern "Rust" fn test(&self);
-}
-
-#[dyntable(abi = Rust)]
-trait MismatchedCAbi {
-	extern "C" fn test(&self);
+#[dyntable(relax_abi = true, repr = Rust)]
+trait ExplicitRelaxedRustRepr {
+	fn implicit_abi(&self);
+	extern "Rust" fn explicit_abi(&self);
 }
