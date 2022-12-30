@@ -6,6 +6,11 @@ use dyntable::dyntable;
 fn main() {}
 
 #[dyntable]
+trait SelfLTTrait<T> {
+	extern "C" fn get_with_self_lt<'s>(&'s self) -> &'s T;
+}
+
+#[dyntable]
 trait BaseLTTrait<'a, A> {
 	extern "C" fn base_longref(&self) -> &'a A;
 }
