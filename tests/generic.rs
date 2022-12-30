@@ -1,6 +1,13 @@
 use dyntable::DynBox;
 use dyntable_macro::dyntable;
 
+// catch directly appending `+ lifetime` to generic,
+// as `T + '__dyn_vtable` instead of `T: '__dyn_vtable`
+#[dyntable]
+trait UnboundedGeneric<T> {
+	extern "C" fn test(&self) -> T;
+}
+
 #[dyntable]
 trait TestTable<T: Clone> {
 	extern "C" fn get(&self) -> T;
