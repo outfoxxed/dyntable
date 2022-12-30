@@ -1,6 +1,6 @@
 //! Code generation and related utilities
 
-use proc_macro2::TokenStream;
+use proc_macro2::{TokenStream, Span};
 use quote::{format_ident, ToTokens};
 use syn::{
 	punctuated::Punctuated,
@@ -17,7 +17,7 @@ use syn::{
 	TypeParam,
 	TypeParamBound,
 	TypePtr,
-	TypeReference,
+	TypeReference, Lifetime,
 };
 
 use crate::parse::{Abi, DynTraitInfo, Subtable, SubtableChildGraph, SubtableEntry, VTableEntry};
@@ -28,12 +28,38 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let ident = &dyntrait.dyntrait.ident;
 	let proxy_trait = format_ident!("__DynTable_{}", dyntrait.dyntrait.ident);
 	let (impl_generics, ty_generics, where_clause) = dyntrait.generics.split_for_impl();
+
 	let impl_generic_entries = dyntrait
 		.generics
 		.params
 		.clone()
 		.into_iter()
 		.collect::<Vec<_>>();
+
+	let impl_vt_generic_entries = dyntrait
+    .generics
+    .params
+    .clone()
+		.into_iter()
+    .map(|mut param| {
+			match &mut param {
+				GenericParam::Lifetime(param) => {
+					param.colon_token.get_or_insert_with(Default::default);
+					param.bounds.insert(0, Lifetime::new("'__dyn_vtable", Span::call_site()));
+				},
+				GenericParam::Type(param) => {
+					param.colon_token.get_or_insert_with(Default::default);
+					param.bounds.insert(
+						0,
+						TypeParamBound::Lifetime(Lifetime::new("'__dyn_vtable", Span::call_site()))
+					);
+				},
+				_ => {},
+			};
+			param
+		})
+    .collect::<Vec<_>>();
+
 	let where_predicates = where_clause
 		.into_iter()
 		.flat_map(|clause| &clause.predicates)
@@ -286,10 +312,9 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				syn::ReturnType::Type(_, ty) => match ty.as_ref() {
 					Type::Reference(TypeReference {
 						and_token,
-						lifetime,
 						mutability,
 						..
-					}) => quote::quote! { #and_token #mutability #lifetime * },
+					}) => quote::quote! { #and_token #mutability * },
 					_ => TokenStream::new(),
 				},
 				_ => TokenStream::new(),
@@ -371,7 +396,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 		unsafe impl<
 			'__dyn_vtable,
-			#(#impl_generic_entries + '__dyn_vtable,)*
+			#(#impl_vt_generic_entries,)*
 			__DynTable,
 		> ::dyntable::__private::DynTable2<'__dyn_vtable, #vtable_ident #ty_generics>
 		for ::dyntable::__private::DynImplTarget<__DynTable, #vtable_ident #ty_generics>
@@ -385,7 +410,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 		unsafe impl<
 			'__dyn_vtable,
-			#(#impl_generic_entries + '__dyn_vtable,)*
+			#(#impl_vt_generic_entries,)*
 			__DynTarget,
 		> #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>
 		for __DynTarget
