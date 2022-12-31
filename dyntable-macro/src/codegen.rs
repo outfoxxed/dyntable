@@ -107,6 +107,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		}
 	};
 
+	let vtable_repr = dyntrait.vtable.repr.as_repr();
+
 	let vtable_entries = dyntrait.entries.iter().map(|entry| match entry {
 		VTableEntry::Subtable(SubtableEntry {
 			ident,
@@ -350,6 +352,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		}
 
 		#[allow(non_snake_case)]
+		#vtable_repr
 		struct #vtable_ident #ty_generics
 		#where_clause {
 			#(#vtable_entries,)*

@@ -1,4 +1,4 @@
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream};
 use syn::{
 	parse::ParseStream,
 	punctuated::Punctuated,
@@ -75,6 +75,15 @@ impl Abi {
 			Self::Explicit(abi) => Some(syn::Abi {
 				extern_token: Default::default(),
 				name: Some(LitStr::new(&abi.to_string(), abi.span())),
+			}),
+		}
+	}
+
+	pub fn as_repr(&self) -> Option<TokenStream> {
+		match self {
+			Self::ImplicitRust => None,
+			Self::Explicit(abi) => Some(quote::quote! {
+				#[repr(#abi)]
 			}),
 		}
 	}
