@@ -5,6 +5,7 @@ use std::{
 };
 
 /// Dyntable implementation details. You should not depend on these.
+#[doc(hidden)]
 pub mod __private {
 	use std::{ffi::c_void, marker::PhantomData, mem};
 
@@ -43,6 +44,8 @@ pub mod __private {
 		const VTABLE: V = DynImplTarget::<T, V>::VTABLE;
 	}
 
+	// VTable trait wrappers
+
 	/// VTable wrapper that marks a VTable as Send.
 	/// Usage of this type is unsafe.
 	#[repr(transparent)]
@@ -56,14 +59,20 @@ pub mod __private {
 	#[repr(transparent)]
 	pub struct SendSyncVTable<T: VTable>(T);
 
+	/// Wrapper type to mark an arbitrary `T` as Send.
+	///
 	/// Usage of this type is unsafe.
 	pub struct SendWrapper<T: ?Sized>(T);
 	unsafe impl<T: ?Sized> Send for SendWrapper<T> {}
 
+	/// Wrapper type to mark an arbitrary `T` as Sync.
+	///
 	/// Usage of this type is unsafe.
 	pub struct SyncWrapper<T: ?Sized>(T);
 	unsafe impl<T: ?Sized> Sync for SyncWrapper<T> {}
 
+	/// Wrapper type to mark an arbitrary `T` as Send + Sync.
+	///
 	/// Usage of this type is unsafe.
 	pub struct SendSyncWrapper<T: ?Sized>(T);
 	unsafe impl<T: ?Sized> Send for SendSyncWrapper<T> {}
@@ -130,7 +139,11 @@ pub mod __private {
 	}
 }
 
-/// Marker for dyntable traits
+/// Types with an associated VTable
+///
+/// # Safety
+/// The VTable provided must be compatible with the type this
+/// trait is applied to.
 pub unsafe trait DynTable<'v, V: 'v + VTable> {
 	/// The underlying VTable for the type this trait is applied to
 	const VTABLE: V;
@@ -154,8 +167,9 @@ pub unsafe trait DropTable: VTable {
 	unsafe fn virtual_drop(&self, instance: *mut c_void);
 }
 
-/// Trait used to retrieve an embedded VTable inside another VTable
+/// VTable types with additional embedded VTable(s).
 pub trait SubTable<V: VTable>: VTable {
+	/// Gets a reference to an embedded VTable of type `V`
 	fn subtable(&self) -> &V;
 }
 
@@ -166,11 +180,17 @@ impl<V: VTable> SubTable<V> for V {
 }
 
 /// Marker for representations of VTables to use in generics
+///
+/// This allows specifying the type this trait is implemented on
+/// in place of its VTable in generics, allowing for a clearer interface.
+///
+/// Implementations are automatically generated with the [`dyntable`] macro
+/// for `dyn Trait`, so `MyTraitVTable` can be used as `dyn MyTrait`.
 pub trait VTableRepr {
 	type VTable: VTable;
 }
 
-/// FFI safe wide pointer.
+/// FFI safe wide pointer to a trait `V`
 #[repr(C)]
 pub struct Dyn<V: VTableRepr + ?Sized> {
 	vtable: *const V::VTable,
@@ -194,7 +214,9 @@ pub struct DynRefMut<'a, V: VTableRepr + ?Sized> {
 	_lt: PhantomData<&'a ()>,
 }
 
-/// FFI Safe Box<dyn Trait>
+/// FFI Safe `Box<dyn V>`
+///
+/// Owned version of [`Dyn`]
 #[repr(C)]
 pub struct DynBox<V>
 where
@@ -253,6 +275,7 @@ where
 	V: VTableRepr + ?Sized,
 	V::VTable: DropTable,
 {
+	/// Creates a new `DynBox<V>` from a type implementing `V`.
 	pub fn new<'v, T: DynTable<'v, V::VTable>>(data: T) -> Self
 	where
 		V::VTable: 'v,
