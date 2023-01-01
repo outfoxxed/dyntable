@@ -433,7 +433,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		#(
 			#[allow(non_snake_case)]
 			unsafe #drop_abi fn #drop_fn_ident<T>(ptr: *mut ::core::ffi::c_void) {
-				let _ = ::std::boxed::Box::from_raw(ptr as *mut T);
+				::core::ptr::drop_in_place(ptr as *mut T);
 			}
 
 			unsafe impl #impl_generics ::dyntable::DropTable
