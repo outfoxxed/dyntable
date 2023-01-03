@@ -1,0 +1,5 @@
+error: associated functions are not allowed in #[dyntable] traits
+ --> tests/compile/fail/associated_fn.rs:7:2
+  |
+7 |     fn associated();
+  |     ^^^^^^^^^^^^^^^^
