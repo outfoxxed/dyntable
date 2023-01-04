@@ -4,6 +4,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, ToTokens};
 use syn::{
 	punctuated::Punctuated,
+	ConstParam,
 	FnArg,
 	GenericParam,
 	Lifetime,
@@ -38,34 +39,35 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		.collect::<Vec<_>>();
 
 	let impl_vt_generic_entries = dyntrait
-    .generics
-    .params
-    .clone()
+		.generics
+		.params
+		.clone()
 		.into_iter()
-    .map(|mut param| {
+		.map(|mut param| {
 			match &mut param {
 				GenericParam::Lifetime(param) => {
 					param.colon_token.get_or_insert_with(Default::default);
-					param.bounds.insert(0, Lifetime::new("'__dyn_vtable", Span::call_site()));
+					param
+						.bounds
+						.insert(0, Lifetime::new("'__dyn_vtable", Span::call_site()));
 				},
 				GenericParam::Type(param) => {
 					param.colon_token.get_or_insert_with(Default::default);
 					param.bounds.insert(
 						0,
-						TypeParamBound::Lifetime(Lifetime::new("'__dyn_vtable", Span::call_site()))
+						TypeParamBound::Lifetime(Lifetime::new("'__dyn_vtable", Span::call_site())),
 					);
 				},
 				_ => {},
 			};
 			param
 		})
-    .collect::<Vec<_>>();
+		.collect::<Vec<_>>();
 
 	let where_predicates = where_clause
 		.into_iter()
 		.flat_map(|clause| &clause.predicates)
 		.collect::<Vec<_>>();
-
 
 	let as_dyn_bounds = dyntrait
 		.dyntrait
@@ -152,12 +154,23 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			..
 		}) => {
 			let inputs = inputs.iter().map(|arg| match arg {
-				FnArg::Receiver(Receiver { mutability, .. }) => {
-					// receiver enforced to be a reference in parse/dyntrait.rs
-
-					let constness = match mutability {
-						Some(_) => None,
-						None => Some(<Token![const]>::default()),
+				FnArg::Receiver(receiver) => {
+					let (constness, mutability) = match receiver {
+						Receiver {
+							reference: None,
+							mutability: _,
+							..
+						} => (None, Some(<Token![mut]>::default())),
+						Receiver {
+							reference: Some(_),
+							mutability: Some(mutability),
+							..
+						} => (None, Some(*mutability)),
+						Receiver {
+							reference: Some(_),
+							mutability: None,
+							..
+						} => (Some(<Token![const]>::default()), None),
 					};
 
 					quote::quote! { *#mutability #constness ::core::ffi::c_void }
@@ -188,7 +201,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		.collect::<Vec<_>>();
 	let drop_fn_ident = drop_abi
 		.iter()
-		.map(|_| format_ident!("__{}_drop", ident))
+		.map(|_| format_ident!("__DynDrop_{}", ident))
 		.into_iter()
 		.collect::<Vec<_>>();
 	let vtable_phantom_generics = {
@@ -269,17 +282,29 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				>>::VTABLE
 			}
 		},
-		VTableEntry::Method(method) => {
-			let Signature {
-				unsafety,
-				abi,
-				fn_token,
-				ident,
-				inputs,
-				variadic,
-				output,
-				..
-			} = &method.sig;
+		VTableEntry::Method(TraitItemMethod {
+			sig:
+				Signature {
+					unsafety,
+					abi,
+					fn_token,
+					ident: fn_ident,
+					inputs,
+					variadic,
+					output,
+					..
+				},
+			..
+		}) => {
+			let receiver_by_value = inputs.iter().any(|arg| {
+				matches!(
+					arg,
+					FnArg::Receiver(Receiver {
+						reference: None,
+						..
+					})
+				)
+			});
 
 			let inputs = inputs.iter().map(|_| <Token![_]>::default());
 
@@ -289,16 +314,100 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			}
 			.into_iter();
 
+			// functions that take self by value need a proxy function to
+			// convert from a pointer to an owned Self
+			let fn_path = match receiver_by_value {
+				false => quote::quote! { __DynTarget::#fn_ident },
+				true => {
+					let fn_generics = dyntrait
+						.generics
+						.params
+						.clone()
+						.into_iter()
+						.map(|param| match param {
+							GenericParam::Type(TypeParam { ident, .. }) => ident.to_token_stream(),
+							GenericParam::Lifetime(LifetimeDef { lifetime, .. }) => {
+								lifetime.to_token_stream()
+							},
+							GenericParam::Const(ConstParam { ident, .. }) => {
+								ident.to_token_stream()
+							},
+						})
+						.collect::<Vec<_>>();
+
+					let fn_ident = format_ident!("__DynImpl_{}_{}", ident, fn_ident);
+					quote::quote! { #fn_ident::<#(#fn_generics,)* __DynTarget> }
+				},
+			};
+
 			quote::quote! {
-				#ident: unsafe {
+				#fn_ident: unsafe {
 					::core::intrinsics::transmute(
-						__DynTarget::#ident as
+						#fn_path as
 							#unsafety #abi #fn_token (
 								#(#inputs,)* #variadic
 							) #( -> #output)*
 					)
 				}
 			}
+		},
+	});
+
+	// functions that take self by value need a proxy function to
+	// convert from a pointer to an owned Self
+	let proxy_fns = dyntrait.entries.iter().filter_map(|entry| match entry {
+		VTableEntry::Subtable(_) => None,
+		VTableEntry::Method(TraitItemMethod {
+			sig:
+				Signature {
+					unsafety,
+					abi,
+					fn_token,
+					ident: fn_ident,
+					generics,
+					inputs,
+					output,
+					..
+				},
+			..
+		}) => 'ret: {
+			let receiver_by_value = inputs.iter().any(|arg| {
+				matches!(
+					arg,
+					FnArg::Receiver(Receiver {
+						reference: None,
+						..
+					})
+				)
+			});
+			if !receiver_by_value {
+				break 'ret None
+			}
+
+			let proxy_fn_ident = format_ident!("__DynImpl_{}_{}", ident, fn_ident);
+
+			let (_, _, fn_where_clause) = generics.split_for_impl();
+
+			let passed_inputs = inputs.iter().filter_map(|arg| match arg {
+				FnArg::Receiver(_) => None,
+				FnArg::Typed(PatType { pat, .. }) => Some(pat),
+			});
+
+			let inputs = inputs.iter().filter(|arg| matches!(arg, FnArg::Typed(_)));
+
+			Some(quote::quote! {
+				#[allow(non_snake_case)]
+				#unsafety #abi #fn_token #proxy_fn_ident <
+					#(#impl_generic_entries,)*
+					__DynSelf: #ident #ty_generics,
+				> (__dyn_self: *mut __DynSelf, #(#inputs),*) #output
+				#fn_where_clause {
+					<__DynSelf as #ident #ty_generics>::#fn_ident(
+						unsafe { __dyn_self.read() },
+						#(#passed_inputs),*
+					)
+				}
+			})
 		},
 	});
 
@@ -350,17 +459,42 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				FnArg::Typed(PatType { pat, .. }) => Some(pat),
 			});
 
+			let receiver_by_value = inputs.iter().any(|arg| {
+				matches!(
+					arg,
+					FnArg::Receiver(Receiver {
+						reference: None,
+						..
+					})
+				)
+			});
+
 			let inputs = inputs.iter();
+
+			let code = match receiver_by_value {
+				false => quote::quote! {
+					#reborrow (::dyntable::SubTable::<
+						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
+					>::subtable(&*self.dyn_vtable()).#fn_ident)
+						(self.dyn_ptr(), #(#passed_inputs),*)
+				},
+				true => quote::quote! {
+					// call the function, the function will consider the pointer
+					// to be by value
+					let __dyn_result = #reborrow (::dyntable::SubTable::<
+						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
+					>::subtable(&*self.dyn_vtable()).#fn_ident)
+						(self.dyn_ptr(), #(#passed_inputs),*);
+					// deallocate the pointer without dropping it
+					self.dyn_dealloc();
+					__dyn_result
+				},
+			};
 
 			quote::quote! {
 				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#(#inputs),*) #output
 				#fn_where_clause {
-					unsafe {
-						#reborrow (::dyntable::SubTable::<
-							<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
-						>::subtable(&*self.dyn_vtable()).#fn_ident)
-							(self.dyn_ptr(), #(#passed_inputs),*)
-					}
+					unsafe { #code }
 				}
 			}
 		}),
@@ -450,6 +584,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				__generics: ::core::marker::PhantomData,
 			};
 		}
+
+		#(#proxy_fns)*
 
 		#(
 			#[allow(non_snake_case)]

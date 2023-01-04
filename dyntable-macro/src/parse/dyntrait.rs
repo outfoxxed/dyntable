@@ -9,7 +9,6 @@ use syn::{
 	spanned::Spanned,
 	token,
 	Attribute,
-	FnArg,
 	Generics,
 	Ident,
 	Path,
@@ -108,29 +107,12 @@ impl Parse for DynTraitBody {
 			.items
 			.into_iter()
 			.map(|item| match item {
-				TraitItem::Method(method) => {
-					match method.sig.receiver() {
-						Some(arg) => {
-							let FnArg::Receiver(receiver) = arg else { unreachable!() };
-							if receiver.reference.is_none() {
-								// TODO: experiment with allowing an owned receiver by
-								// moving an owned pointer to the stack, and a
-								// `Box<Self>` with Box::from_raw
-								return Err(syn::Error::new(
-									receiver.span(),
-									"methods cannot take self by value in #[dyntable] annotated traits"
-								))
-							}
-						},
-						None => {
-							return Err(syn::Error::new(
-								method.span(),
-								"associated functions are not allowed in #[dyntable] traits",
-							))
-						},
-					}
-
-					Ok(method)
+				TraitItem::Method(method) => match method.sig.receiver() {
+					Some(_) => Ok(method),
+					None => Err(syn::Error::new(
+						method.span(),
+						"associated functions are not allowed in #[dyntable] traits",
+					)),
 				},
 				item => Err(syn::Error::new(
 					item.span(),

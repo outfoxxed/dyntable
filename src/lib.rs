@@ -4,7 +4,7 @@ use std::{
 	alloc::{handle_alloc_error, Layout},
 	ffi::c_void,
 	marker::PhantomData,
-	mem::MaybeUninit,
+	mem::{self, MaybeUninit},
 	ops::{Deref, DerefMut},
 	ptr::NonNull,
 };
@@ -88,6 +88,12 @@ pub unsafe trait AsDyn {
 	/// # Safety
 	/// This pointer is valid for at least `'self`.
 	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable;
+	/// Deallocate the contained pointer without dropping
+	///
+	/// # Note
+	/// This function may panic if it is unreasonable to
+	/// deallocate the contained pointer.
+	fn dyn_dealloc(self);
 }
 
 /// Alternate form of &Dyn used to keep the vtable reference available
@@ -127,7 +133,7 @@ pub mod alloc {
 		/// Allocate a block of memory, given it's layout
 		///
 		/// # Errors
-		/// An `AllocError` is returned if the allocator cannot
+		/// An [`AllocError`] is returned if the allocator cannot
 		/// allocate the specified memory block for any reason.
 		unsafe fn allocate(&self, layout: Self::AllocLayout) -> Result<NonNull<[u8]>, AllocError>;
 	}
@@ -136,7 +142,10 @@ pub mod alloc {
 	///
 	/// Stand-in for [`core::alloc::Layout`]
 	pub trait MemoryLayout: Clone {
+		/// Construct a new memory layout capable of representing `T`
 		fn new<T>() -> Self;
+		/// Indicates if a memory layout is zero sized, in which case
+		/// no memory should actually be allocated
 		fn is_zero_sized(&self) -> bool;
 	}
 
@@ -267,6 +276,10 @@ unsafe impl<V: VTableRepr + ?Sized> AsDyn for Dyn<V> {
 	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable {
 		self.vtable
 	}
+
+	fn dyn_dealloc(self) {
+		unreachable!("raw dynpointers cannot be deallocated");
+	}
 }
 
 unsafe impl<V> AsDyn for DynBox<V>
@@ -284,6 +297,17 @@ where
 	#[inline(always)]
 	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable {
 		self.r#dyn.vtable
+	}
+
+	fn dyn_dealloc(self) {
+		unsafe {
+			self.alloc.deallocate(
+				NonNull::new_unchecked(self.r#dyn.dynptr as *mut _ as *mut u8),
+				self.layout.clone(),
+			);
+		}
+
+		mem::forget(self);
 	}
 }
 

@@ -15,8 +15,10 @@ trait TestTable<T: Clone> {
 	extern "C" fn get_mut_ref(&mut self) -> &mut T;
 	extern "C" fn set(&mut self, value: T);
 	extern "C" fn set_from_doubleref(&mut self, value: &&T);
+	extern "C" fn take(self) -> T;
 }
 
+#[repr(C)]
 struct TestStruct<T> {
 	value: T,
 }
@@ -40,6 +42,10 @@ impl<T: Clone> TestTable<T> for TestStruct<T> {
 
 	extern "C" fn set_from_doubleref(&mut self, value: &&T) {
 		self.value = (*value).clone();
+	}
+
+	extern "C" fn take(self) -> T {
+		self.value
 	}
 }
 

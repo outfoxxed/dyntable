@@ -13,6 +13,7 @@ trait SelfLTTrait<T> {
 #[dyntable]
 trait BaseLTTrait<'a, A> {
 	extern "C" fn base_longref(&self) -> &'a A;
+	extern "C" fn take_longref(self) -> &'a A;
 }
 
 #[dyntable]
