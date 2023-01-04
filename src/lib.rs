@@ -76,6 +76,20 @@ pub struct Dyn<V: VTableRepr + ?Sized> {
 unsafe impl<V: VTableRepr + ?Sized> Send for Dyn<V> where <V::VTable as VTable>::Bounds: Send {}
 unsafe impl<V: VTableRepr + ?Sized> Sync for Dyn<V> where <V::VTable as VTable>::Bounds: Sync {}
 
+/// # Notes
+/// This trait is used as an implementation target for
+/// [`dyntable`] annotated traits.
+pub unsafe trait AsDyn {
+	type Repr: VTableRepr + ?Sized;
+
+	/// # Safety
+	/// This pointer is valid for at least `'self`.
+	fn dyn_ptr(&self) -> *mut c_void;
+	/// # Safety
+	/// This pointer is valid for at least `'self`.
+	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable;
+}
+
 /// Alternate form of &Dyn used to keep the vtable reference available
 #[repr(C)]
 pub struct DynRef<'a, V: VTableRepr + ?Sized> {
@@ -239,6 +253,38 @@ where
 	r#dyn: Dyn<V>,
 	alloc: A,
 	layout: A::DeallocLayout,
+}
+
+unsafe impl<V: VTableRepr + ?Sized> AsDyn for Dyn<V> {
+	type Repr = V;
+
+	#[inline(always)]
+	fn dyn_ptr(&self) -> *mut c_void {
+		self.dynptr
+	}
+
+	#[inline(always)]
+	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable {
+		self.vtable
+	}
+}
+
+unsafe impl<V> AsDyn for DynBox<V>
+where
+	V: VTableRepr + ?Sized,
+	V::VTable: DropTable,
+{
+	type Repr = V;
+
+	#[inline(always)]
+	fn dyn_ptr(&self) -> *mut c_void {
+		self.r#dyn.dynptr
+	}
+
+	#[inline(always)]
+	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable {
+		self.r#dyn.vtable
+	}
 }
 
 impl<V: VTableRepr + ?Sized> Deref for DynRef<'_, V> {

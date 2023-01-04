@@ -1,20 +1,10 @@
 use std::{ffi::c_void, marker::PhantomData, mem};
 
-use crate::{DropTable, Dyn, DynTable, VTable, VTableRepr};
+use crate::{DropTable, DynTable, VTable};
 
 /// Trait that implies nothing, used for `VTable::Bounds`
 /// when no bounds are required
 pub trait NoBounds {}
-
-#[inline]
-pub fn dyn_vtable<V: VTableRepr + ?Sized>(r#dyn: &Dyn<V>) -> *const V::VTable {
-	r#dyn.vtable
-}
-
-#[inline]
-pub fn dyn_ptr<V: VTableRepr + ?Sized>(r#dyn: &Dyn<V>) -> *mut c_void {
-	r#dyn.dynptr
-}
 
 /// Struct used to evade the orphan rule, which prevents directly
 /// implementing DynTable for `T: DynTrait`

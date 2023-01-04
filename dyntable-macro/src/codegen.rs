@@ -1,11 +1,12 @@
 //! Code generation and related utilities
 
-use proc_macro2::{TokenStream, Span};
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, ToTokens};
 use syn::{
 	punctuated::Punctuated,
 	FnArg,
 	GenericParam,
+	Lifetime,
 	LifetimeDef,
 	PatType,
 	Receiver,
@@ -17,7 +18,7 @@ use syn::{
 	TypeParam,
 	TypeParamBound,
 	TypePtr,
-	TypeReference, Lifetime,
+	TypeReference,
 };
 
 use crate::parse::{Abi, DynTraitInfo, Subtable, SubtableChildGraph, SubtableEntry, VTableEntry};
@@ -63,6 +64,26 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let where_predicates = where_clause
 		.into_iter()
 		.flat_map(|clause| &clause.predicates)
+		.collect::<Vec<_>>();
+
+
+	let as_dyn_bounds = dyntrait
+		.dyntrait
+		.supertraits
+		.iter()
+		.filter(|supertrait| match supertrait {
+			TypeParamBound::Lifetime(_) => false,
+			TypeParamBound::Trait(TraitBound {
+				path: superpath, ..
+			}) => !dyntrait.entries.iter().any(|entry| match entry {
+				VTableEntry::Subtable(SubtableEntry {
+					subtable: Subtable { path, .. },
+					..
+				}) if path == superpath => true,
+				_ => false,
+			}),
+		})
+		.into_iter()
 		.collect::<Vec<_>>();
 
 	let trait_bounds = match dyntrait.dyntrait.supertraits.is_empty() {
@@ -337,8 +358,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 					unsafe {
 						#reborrow (::dyntable::SubTable::<
 							<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
-						>::subtable(&*::dyntable::__private::dyn_vtable(self)).#fn_ident)
-							(::dyntable::__private::dyn_ptr(self), #(#passed_inputs),*)
+						>::subtable(&*self.dyn_vtable()).#fn_ident)
+							(self.dyn_ptr(), #(#passed_inputs),*)
 					}
 				}
 			}
@@ -447,18 +468,17 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 		impl<
 			#(#impl_generic_entries,)*
-			__DynSubTables,
-			__DynRepr,
-		> #ident #ty_generics
-		for ::dyntable::Dyn<__DynRepr>
+			__AsDyn,
+		> #ident #ty_generics for __AsDyn
 		where
 			#(#where_predicates,)*
-			__DynSubTables: ::dyntable::SubTable<#vtable_ident #ty_generics>
+			__AsDyn: ::dyntable::AsDyn #(+ #as_dyn_bounds)*,
+			<__AsDyn::Repr as ::dyntable::VTableRepr>::VTable:
+				::dyntable::SubTable<#vtable_ident #ty_generics>
 				#(+ ::dyntable::SubTable<
 					<(dyn #subtable_paths + 'static) as ::dyntable::VTableRepr>::VTable
 				>)*,
-			#(<__DynSubTables as ::dyntable::VTable>::Bounds: #trait_bounds,)*
-			__DynRepr: ::dyntable::VTableRepr<VTable = __DynSubTables> + ?::core::marker::Sized,
+			#(<<__AsDyn::Repr as ::dyntable::VTableRepr>::VTable as ::dyntable::VTable>::Bounds: #trait_bounds,)*
 		{
 			#(#dyn_impl_methods)*
 		}
