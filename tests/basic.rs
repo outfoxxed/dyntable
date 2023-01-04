@@ -7,6 +7,9 @@ trait TestTable {
 	extern "C" fn set(&mut self, value: i32);
 }
 
+#[dyntable]
+unsafe trait UnsafeTrait {}
+
 struct TestStruct {
 	number: i32,
 }

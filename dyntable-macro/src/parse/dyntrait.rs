@@ -125,7 +125,7 @@ impl Parse for DynTraitBody {
 						None => {
 							return Err(syn::Error::new(
 								method.span(),
-								"associated functions are not allowedin #[dyntable] traits",
+								"associated functions are not allowed in #[dyntable] traits",
 							))
 						},
 					}
