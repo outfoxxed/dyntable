@@ -9,9 +9,15 @@ use syn::{
 	spanned::Spanned,
 	token,
 	Attribute,
+	FnArg,
 	Generics,
 	Ident,
+	Pat,
+	PatIdent,
+	PatType,
 	Path,
+	Receiver,
+	Signature,
 	Token,
 	TraitBound,
 	TraitItem,
@@ -21,7 +27,7 @@ use syn::{
 };
 
 use self::parse::{DynTrait, DynWherePredicateSupertrait};
-use super::Subtable;
+use super::{MethodEntry, MethodParam, MethodReceiver, ReceiverReference, Subtable};
 use crate::parse::SubtableEntry;
 
 /// Validated #[dyntable] trait AST tokens
@@ -37,7 +43,7 @@ pub struct DynTraitBody {
 	pub supertraits: Punctuated<TypeParamBound, Token![+]>,
 	pub subtables: Vec<SubtableEntry>,
 	pub brace_token: token::Brace,
-	pub methods: Vec<TraitItemMethod>,
+	pub methods: Vec<MethodEntry>,
 }
 
 impl Parse for DynTraitBody {
@@ -107,13 +113,7 @@ impl Parse for DynTraitBody {
 			.items
 			.into_iter()
 			.map(|item| match item {
-				TraitItem::Method(method) => match method.sig.receiver() {
-					Some(_) => Ok(method),
-					None => Err(syn::Error::new(
-						method.span(),
-						"associated functions are not allowed in #[dyntable] traits",
-					)),
-				},
+				TraitItem::Method(TraitItemMethod { sig, .. }) => Ok(MethodEntry::try_from(sig)?),
 				item => Err(syn::Error::new(
 					item.span(),
 					"only method defintions are allowed in #[dyntable] annotated traits",
@@ -262,6 +262,115 @@ fn graph_subtables(
 	used_supertrait_entries.insert(path.clone());
 
 	Subtable { path, subtables }
+}
+
+impl TryFrom<Signature> for MethodEntry {
+	type Error = syn::Error;
+
+	fn try_from(sig: Signature) -> Result<Self, Self::Error> {
+		let sig_span = sig.span();
+		let Signature {
+			unsafety,
+			abi,
+			fn_token,
+			ident,
+			generics,
+			inputs,
+			variadic,
+			output,
+			..
+		} = sig;
+
+		if let Some(variadic) = variadic {
+			return Err(syn::Error::new(
+				variadic.span(),
+				"variadics are not supported in #[dyntable] annotated traits",
+			))
+		}
+
+		let mut receiver = Option::<MethodReceiver>::None;
+		let mut args = Vec::<MethodParam>::with_capacity(inputs.len().saturating_sub(1));
+
+		for input in inputs {
+			match input {
+				FnArg::Receiver(Receiver {
+					reference: None,
+					self_token,
+					..
+				}) => {
+					if receiver.is_some() {
+						return Err(syn::Error::new(
+							self_token.span(),
+							"`self` is bound more than once",
+						))
+					}
+
+					receiver = Some(MethodReceiver::Value(self_token));
+				},
+				FnArg::Receiver(Receiver {
+					reference: Some(reference),
+					mutability,
+					self_token,
+					..
+				}) => {
+					if receiver.is_some() {
+						return Err(syn::Error::new(
+							self_token.span(),
+							"`self` is bound more than once",
+						))
+					}
+
+					receiver = Some(MethodReceiver::Reference(ReceiverReference {
+						reference,
+						mutability,
+						self_token,
+					}));
+				},
+				FnArg::Typed(ty) => {
+					if receiver.is_none() {
+						return Err(syn::Error::new(ty.span(), "missing `self`"))
+					}
+
+					let PatType {
+						pat,
+						ty,
+						colon_token,
+						..
+					} = ty;
+
+					let Pat::Ident(PatIdent {
+						by_ref: None,
+						mutability: None,
+						subpat: None,
+						ident,
+						..
+					}) = *pat else {
+						return Err(syn::Error::new(pat.span(), "patterns are not supported in dyntrait methods"))
+					};
+
+					args.push(MethodParam {
+						ident,
+						colon_token,
+						ty: *ty,
+					});
+				},
+			}
+		}
+
+		let receiver =
+			receiver.ok_or_else(|| syn::Error::new(sig_span, "missing `self` parameter"))?;
+
+		Ok(Self {
+			unsafety,
+			abi,
+			fn_token,
+			ident,
+			generics,
+			receiver,
+			inputs: args,
+			output,
+		})
+	}
 }
 
 // copied from old trait parsing code.

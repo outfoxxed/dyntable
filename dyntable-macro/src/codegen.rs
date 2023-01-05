@@ -5,16 +5,11 @@ use quote::{format_ident, ToTokens};
 use syn::{
 	punctuated::Punctuated,
 	ConstParam,
-	FnArg,
 	GenericParam,
 	Lifetime,
 	LifetimeDef,
-	PatType,
-	Receiver,
-	Signature,
 	Token,
 	TraitBound,
-	TraitItemMethod,
 	Type,
 	TypeParam,
 	TypeParamBound,
@@ -22,7 +17,17 @@ use syn::{
 	TypeReference,
 };
 
-use crate::parse::{Abi, DynTraitInfo, Subtable, SubtableChildGraph, SubtableEntry, VTableEntry};
+use crate::parse::{
+	Abi,
+	DynTraitInfo,
+	MethodEntry,
+	MethodParam,
+	MethodReceiver,
+	Subtable,
+	SubtableChildGraph,
+	SubtableEntry,
+	VTableEntry,
+};
 
 /// Generate expanded macro code from trait body
 pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
@@ -139,46 +144,22 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		}) => quote::quote! {
 			#ident: <(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable
 		},
-		VTableEntry::Method(TraitItemMethod {
-			sig:
-				Signature {
-					unsafety,
-					abi,
-					fn_token,
-					ident,
-					inputs,
-					variadic,
-					output,
-					..
-				},
+		VTableEntry::Method(MethodEntry {
+			unsafety,
+			abi,
+			fn_token,
+			ident,
+			receiver,
+			inputs,
+			output,
 			..
 		}) => {
-			let inputs = inputs.iter().map(|arg| match arg {
-				FnArg::Receiver(receiver) => {
-					let (constness, mutability) = match receiver {
-						Receiver {
-							reference: None,
-							mutability: _,
-							..
-						} => (None, Some(<Token![mut]>::default())),
-						Receiver {
-							reference: Some(_),
-							mutability: Some(mutability),
-							..
-						} => (None, Some(*mutability)),
-						Receiver {
-							reference: Some(_),
-							mutability: None,
-							..
-						} => (Some(<Token![const]>::default()), None),
-					};
+			let self_ptr_type = receiver.pointer_type();
 
-					quote::quote! { *#mutability #constness ::core::ffi::c_void }
-				},
-				FnArg::Typed(PatType { ty, .. }) => {
-					strip_references(ty.as_ref().clone()).to_token_stream()
-				},
-			});
+			let inputs = inputs
+				.iter()
+				.map(|MethodParam { ty, .. }| strip_references(ty.clone()));
+
 			let output = match output {
 				syn::ReturnType::Default => None,
 				syn::ReturnType::Type(_, ty) => Some(strip_references(ty.as_ref().clone())),
@@ -187,7 +168,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 			quote::quote! {
 				#ident: #unsafety #abi #fn_token (
-					#(#inputs,)* #variadic
+					*#self_ptr_type ::core::ffi::c_void,
+					#(#inputs),*
 				) #( -> #output)*
 			}
 		},
@@ -282,30 +264,16 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				>>::VTABLE
 			}
 		},
-		VTableEntry::Method(TraitItemMethod {
-			sig:
-				Signature {
-					unsafety,
-					abi,
-					fn_token,
-					ident: fn_ident,
-					inputs,
-					variadic,
-					output,
-					..
-				},
+		VTableEntry::Method(MethodEntry {
+			unsafety,
+			abi,
+			fn_token,
+			ident: fn_ident,
+			receiver,
+			inputs,
+			output,
 			..
 		}) => {
-			let receiver_by_value = inputs.iter().any(|arg| {
-				matches!(
-					arg,
-					FnArg::Receiver(Receiver {
-						reference: None,
-						..
-					})
-				)
-			});
-
 			let inputs = inputs.iter().map(|_| <Token![_]>::default());
 
 			let output = match output {
@@ -316,9 +284,9 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 			// functions that take self by value need a proxy function to
 			// convert from a pointer to an owned Self
-			let fn_path = match receiver_by_value {
-				false => quote::quote! { __DynTarget::#fn_ident },
-				true => {
+			let fn_path = match receiver {
+				MethodReceiver::Reference(_) => quote::quote! { __DynTarget::#fn_ident },
+				MethodReceiver::Value(_) => {
 					let fn_generics = dyntrait
 						.generics
 						.params
@@ -345,7 +313,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 					::core::intrinsics::transmute(
 						#fn_path as
 							#unsafety #abi #fn_token (
-								#(#inputs,)* #variadic
+								_,
+								#(#inputs),*
 							) #( -> #output)*
 					)
 				}
@@ -356,44 +325,19 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	// functions that take self by value need a proxy function to
 	// convert from a pointer to an owned Self
 	let proxy_fns = dyntrait.entries.iter().filter_map(|entry| match entry {
-		VTableEntry::Subtable(_) => None,
-		VTableEntry::Method(TraitItemMethod {
-			sig:
-				Signature {
-					unsafety,
-					abi,
-					fn_token,
-					ident: fn_ident,
-					generics,
-					inputs,
-					output,
-					..
-				},
-			..
-		}) => 'ret: {
-			let receiver_by_value = inputs.iter().any(|arg| {
-				matches!(
-					arg,
-					FnArg::Receiver(Receiver {
-						reference: None,
-						..
-					})
-				)
-			});
-			if !receiver_by_value {
-				break 'ret None
-			}
-
+		VTableEntry::Method(MethodEntry {
+			unsafety,
+			abi,
+			fn_token,
+			ident: fn_ident,
+			generics,
+			receiver: MethodReceiver::Value(_),
+			inputs,
+			output,
+		}) => {
 			let proxy_fn_ident = format_ident!("__DynImpl_{}_{}", ident, fn_ident);
-
 			let (_, _, fn_where_clause) = generics.split_for_impl();
-
-			let passed_inputs = inputs.iter().filter_map(|arg| match arg {
-				FnArg::Receiver(_) => None,
-				FnArg::Typed(PatType { pat, .. }) => Some(pat),
-			});
-
-			let inputs = inputs.iter().filter(|arg| matches!(arg, FnArg::Typed(_)));
+			let arg_list = MethodParam::idents(inputs.iter());
 
 			Some(quote::quote! {
 				#[allow(non_snake_case)]
@@ -404,11 +348,12 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				#fn_where_clause {
 					<__DynSelf as #ident #ty_generics>::#fn_ident(
 						unsafe { __dyn_self.read() },
-						#(#passed_inputs),*
+						#(#arg_list),*
 					)
 				}
 			})
 		},
+		_ => None,
 	});
 
 	let subtable_paths = dyntrait
@@ -424,20 +369,15 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 	let dyn_impl_methods = dyntrait.entries.iter().filter_map(|entry| match entry {
 		VTableEntry::Subtable(_) => None,
-		VTableEntry::Method(TraitItemMethod {
-			sig:
-				Signature {
-					unsafety,
-					abi,
-					fn_token,
-					ident: fn_ident,
-					generics,
-					inputs,
-					//variadic, TODO
-					output,
-					..
-				},
-			..
+		VTableEntry::Method(MethodEntry {
+			unsafety,
+			abi,
+			fn_token,
+			ident: fn_ident,
+			generics,
+			receiver,
+			inputs,
+			output,
 		}) => Some({
 			// reborrow if a reference was returned, as it will be a pointer.
 			let reborrow = match output {
@@ -453,38 +393,22 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			};
 
 			let (_, fn_ty_generics, fn_where_clause) = generics.split_for_impl();
+			let arg_list = MethodParam::idents(inputs.iter());
 
-			let passed_inputs = inputs.iter().filter_map(|arg| match arg {
-				FnArg::Receiver(_) => None,
-				FnArg::Typed(PatType { pat, .. }) => Some(pat),
-			});
-
-			let receiver_by_value = inputs.iter().any(|arg| {
-				matches!(
-					arg,
-					FnArg::Receiver(Receiver {
-						reference: None,
-						..
-					})
-				)
-			});
-
-			let inputs = inputs.iter();
-
-			let code = match receiver_by_value {
-				false => quote::quote! {
+			let code = match receiver {
+				MethodReceiver::Reference(_) => quote::quote! {
 					#reborrow (::dyntable::SubTable::<
 						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
 					>::subtable(&*self.dyn_vtable()).#fn_ident)
-						(self.dyn_ptr(), #(#passed_inputs),*)
+						(self.dyn_ptr(), #(#arg_list),*)
 				},
-				true => quote::quote! {
+				MethodReceiver::Value(_) => quote::quote! {
 					// call the function, the function will consider the pointer
 					// to be by value
 					let __dyn_result = #reborrow (::dyntable::SubTable::<
 						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
 					>::subtable(&*self.dyn_vtable()).#fn_ident)
-						(self.dyn_ptr(), #(#passed_inputs),*);
+						(self.dyn_ptr(), #(#arg_list),*);
 					// deallocate the pointer without dropping it
 					self.dyn_dealloc();
 					__dyn_result
@@ -492,7 +416,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			};
 
 			quote::quote! {
-				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#(#inputs),*) #output
+				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#receiver, #(#inputs),*) #output
 				#fn_where_clause {
 					unsafe { #code }
 				}

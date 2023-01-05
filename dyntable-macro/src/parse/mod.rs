@@ -1,4 +1,5 @@
 use proc_macro2::{Span, TokenStream};
+use quote::ToTokens;
 use syn::{
 	parse::ParseStream,
 	punctuated::Punctuated,
@@ -6,10 +7,12 @@ use syn::{
 	token,
 	Generics,
 	Ident,
+	Lifetime,
 	LitStr,
 	Path,
+	ReturnType,
 	Token,
-	TraitItemMethod,
+	Type,
 	TypeParamBound,
 	Visibility,
 };
@@ -50,6 +53,30 @@ pub struct TraitInfo {
 pub enum Abi {
 	ImplicitRust,
 	Explicit(Ident),
+}
+
+#[derive(Debug)]
+pub enum PointerType {
+	Const(Token![const]),
+	Mut(Token![mut]),
+}
+
+impl From<Option<Token![mut]>> for PointerType {
+	fn from(value: Option<Token![mut]>) -> Self {
+		match value {
+			Some(value) => Self::Mut(value),
+			None => Self::Const(Default::default()),
+		}
+	}
+}
+
+impl ToTokens for PointerType {
+	fn to_tokens(&self, tokens: &mut TokenStream) {
+		match self {
+			Self::Const(token) => token.to_tokens(tokens),
+			Self::Mut(token) => token.to_tokens(tokens),
+		}
+	}
 }
 
 impl Abi {
@@ -98,7 +125,7 @@ pub enum VTableEntry {
 	// them differently within a DynTrait's VTable if
 	// another representation is added which allows that (struct form)
 	Subtable(SubtableEntry),
-	Method(TraitItemMethod),
+	Method(MethodEntry),
 }
 
 /// A VTable's direct subtable, to be used as
@@ -128,6 +155,110 @@ pub struct Subtable {
 	pub subtables: Vec<Subtable>,
 }
 
+#[derive(Debug)]
+pub struct MethodEntry {
+	pub unsafety: Option<Token![unsafe]>,
+	pub abi: Option<syn::Abi>,
+	pub fn_token: Token![fn],
+	pub ident: Ident,
+	pub generics: Generics,
+	pub receiver: MethodReceiver,
+	/// # Note
+	/// does not include receiver
+	pub inputs: Vec<MethodParam>,
+	pub output: ReturnType,
+}
+
+#[derive(Debug)]
+pub enum MethodReceiver {
+	Reference(ReceiverReference),
+	Value(Token![self]),
+}
+
+#[derive(Debug)]
+pub struct ReceiverReference {
+	pub reference: (Token![&], Option<Lifetime>),
+	pub mutability: Option<Token![mut]>,
+	pub self_token: Token![self],
+}
+
+impl MethodReceiver {
+	/// Get the pointer type (mut / const) for this receiver.
+	///
+	/// # Note
+	/// An owned receiver will be `mut` due to it being passed
+	/// to the shim as a pointer.
+	pub fn pointer_type(&self) -> PointerType {
+		match self {
+			Self::Value(_) => PointerType::Mut(Default::default()),
+			Self::Reference(ReceiverReference { mutability, .. }) => PointerType::from(*mutability),
+		}
+	}
+}
+
+impl ToTokens for ReceiverReference {
+	fn to_tokens(&self, tokens: &mut TokenStream) {
+		self.reference.0.to_tokens(tokens);
+		self.reference.1.to_tokens(tokens);
+		self.mutability.to_tokens(tokens);
+		self.self_token.to_tokens(tokens);
+	}
+}
+
+impl ToTokens for MethodReceiver {
+	fn to_tokens(&self, tokens: &mut TokenStream) {
+		match self {
+			Self::Value(x) => x.to_tokens(tokens),
+			Self::Reference(x) => x.to_tokens(tokens),
+		}
+	}
+}
+
+#[derive(Debug)]
+pub struct MethodParam {
+	pub ident: Ident,
+	pub colon_token: Token![:],
+	pub ty: Type,
+}
+
+impl MethodParam {
+	/// List only parameter names from a list of `MethodParam`s
+	/// to pass as arguments.
+	pub fn idents<'s>(inputs: impl Iterator<Item = &'s Self>) -> impl Iterator<Item = &'s Ident> {
+		inputs.map(|Self { ident, .. }| ident)
+	}
+}
+
+impl ToTokens for MethodParam {
+	fn to_tokens(&self, tokens: &mut TokenStream) {
+		self.ident.to_tokens(tokens);
+		self.colon_token.to_tokens(tokens);
+		self.ty.to_tokens(tokens);
+	}
+}
+
+impl ToTokens for MethodEntry {
+	fn to_tokens(&self, tokens: &mut TokenStream) {
+		let Self {
+			unsafety,
+			abi,
+			fn_token,
+			ident,
+			generics,
+			receiver,
+			inputs,
+			output,
+		} = self;
+
+		let (_, ty_generics, where_clause) = generics.split_for_impl();
+
+		tokens.extend(quote::quote! {
+			#unsafety #abi #fn_token #ident #ty_generics (#receiver, #(#inputs),*) #output
+			#where_clause;
+		});
+	}
+}
+
 impl DynTraitInfo {
 	pub fn parse_trait(
 		attr: proc_macro::TokenStream,
@@ -138,9 +269,9 @@ impl DynTraitInfo {
 
 		if !attr_options.relax_abi {
 			for method in &trait_body.methods {
-				if method.sig.abi.is_none() {
+				if method.abi.is_none() {
 					return Err(syn::Error::new(
-						method.sig.fn_token.span(),
+						method.fn_token.span(),
 						"missing explicit ABI specifier (add `relax_abi = true` to the #[dyntrait] annotation to relax this check)",
 					))
 				}
