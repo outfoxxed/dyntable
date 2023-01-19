@@ -16,42 +16,6 @@ error[E0277]: the trait bound `(dyn NonDyntableTrait + 'static): VTableRepr` is 
            and $N others
    = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0277]: the trait bound `(dyn NonDyntableTrait + 'static): VTableRepr` is not satisfied
-  --> tests/compile/fail/trait_bounds.rs:18:1
-   |
-18 | #[dyntable]
-   | ^^^^^^^^^^^ the trait `VTableRepr` is not implemented for `(dyn NonDyntableTrait + 'static)`
-   |
-   = help: the following other types implement trait `VTableRepr`:
-             (dyn DynBoundWithoutClause + 'static)
-             (dyn DynBoundWithoutClause + Send + 'static)
-             (dyn DynBoundWithoutClause + Send + Sync + 'static)
-             (dyn DynBoundWithoutClause + Sync + 'static)
-             (dyn DyntableTrait + 'static)
-             (dyn DyntableTrait + Send + 'static)
-             (dyn DyntableTrait + Send + Sync + 'static)
-             (dyn DyntableTrait + Sync + 'static)
-           and $N others
-   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0277]: the trait bound `(dyn NonDyntableTrait + 'static): VTableRepr` is not satisfied
-  --> tests/compile/fail/trait_bounds.rs:18:1
-   |
-18 | #[dyntable]
-   | ^^^^^^^^^^^ the trait `VTableRepr` is not implemented for `(dyn NonDyntableTrait + 'static)`
-   |
-   = help: the following other types implement trait `VTableRepr`:
-             (dyn DynBoundWithoutClause + 'static)
-             (dyn DynBoundWithoutClause + Send + 'static)
-             (dyn DynBoundWithoutClause + Send + Sync + 'static)
-             (dyn DynBoundWithoutClause + Sync + 'static)
-             (dyn DyntableTrait + 'static)
-             (dyn DyntableTrait + Send + 'static)
-             (dyn DyntableTrait + Send + Sync + 'static)
-             (dyn DyntableTrait + Sync + 'static)
-           and $N others
-   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
-
 error[E0277]: the trait bound `__AsDyn: NonDyntableTrait` is not satisfied
   --> tests/compile/fail/trait_bounds.rs:19:7
    |
@@ -86,22 +50,4 @@ note: required by a bound in `MissingExplicitBoundInheritance`
    |
 47 | trait MissingExplicitBoundInheritance: ImplementedTrait
    |                                        ^^^^^^^^^^^^^^^^ required by this bound in `MissingExplicitBoundInheritance`
-   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0277]: the trait bound `(dyn NonDyntableTrait + 'static): VTableRepr` is not satisfied
-  --> tests/compile/fail/trait_bounds.rs:18:1
-   |
-18 | #[dyntable]
-   | ^^^^^^^^^^^ the trait `VTableRepr` is not implemented for `(dyn NonDyntableTrait + 'static)`
-   |
-   = help: the following other types implement trait `VTableRepr`:
-             (dyn DynBoundWithoutClause + 'static)
-             (dyn DynBoundWithoutClause + Send + 'static)
-             (dyn DynBoundWithoutClause + Send + Sync + 'static)
-             (dyn DynBoundWithoutClause + Sync + 'static)
-             (dyn DyntableTrait + 'static)
-             (dyn DyntableTrait + Send + 'static)
-             (dyn DyntableTrait + Send + Sync + 'static)
-             (dyn DyntableTrait + Sync + 'static)
-           and $N others
    = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
