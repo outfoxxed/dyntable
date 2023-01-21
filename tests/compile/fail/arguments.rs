@@ -9,6 +9,13 @@ trait Associated {
 	fn associated();
 }
 
+// variadics are not supported
+
+#[dyntable]
+trait Variadic {
+	fn test(&self, ...);
+}
+
 // self must be the first parameter
 
 #[dyntable]
