@@ -337,14 +337,15 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		}) => {
 			let proxy_fn_ident = format_ident!("__DynImpl_{}_{}", ident, fn_ident);
 			let (_, _, fn_where_clause) = generics.split_for_impl();
-			let arg_list = MethodParam::idents(inputs.iter());
+			let param_list = MethodParam::params_safe(inputs.iter());
+			let arg_list = MethodParam::idents_safe(inputs.iter());
 
 			Some(quote::quote! {
 				#[allow(non_snake_case)]
 				#unsafety #abi #fn_token #proxy_fn_ident <
 					#(#impl_generic_entries,)*
 					__DynSelf: #ident #ty_generics,
-				> (__dyn_self: *mut __DynSelf, #(#inputs),*) #output
+				> (__dyn_self: *mut __DynSelf, #(#param_list),*) #output
 				#fn_where_clause {
 					<__DynSelf as #ident #ty_generics>::#fn_ident(
 						unsafe { __dyn_self.read() },
@@ -393,7 +394,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			};
 
 			let (_, fn_ty_generics, fn_where_clause) = generics.split_for_impl();
-			let arg_list = MethodParam::idents(inputs.iter());
+			let param_list = MethodParam::params_safe(inputs.iter());
+			let arg_list = MethodParam::idents_safe(inputs.iter());
 
 			let code = match receiver {
 				MethodReceiver::Reference(_) => quote::quote! {
@@ -416,7 +418,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			};
 
 			quote::quote! {
-				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#receiver, #(#inputs),*) #output
+				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#receiver, #(#param_list),*) #output
 				#fn_where_clause {
 					unsafe { #code }
 				}

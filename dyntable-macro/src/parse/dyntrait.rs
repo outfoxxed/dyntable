@@ -15,6 +15,7 @@ use syn::{
 	Pat,
 	PatIdent,
 	PatType,
+	PatWild,
 	Path,
 	Receiver,
 	Signature,
@@ -335,14 +336,24 @@ impl TryFrom<Signature> for MethodEntry {
 					} = ty;
 
 					let pat_span = pat.span();
-					let Pat::Ident(PatIdent {
-						by_ref: None,
-						mutability: None,
-						subpat: None,
-						ident,
-						..
-					}) = *pat else {
-						return Err(syn::Error::new(pat.span(), "patterns are not supported in dyntrait methods"))
+
+					let ident = match *pat {
+						Pat::Ident(PatIdent {
+							by_ref: None,
+							mutability: None,
+							subpat: None,
+							ident,
+							..
+						}) => ident,
+						Pat::Wild(PatWild {
+							underscore_token, ..
+						}) => Ident::new("_", underscore_token.span()),
+						pat => {
+							return Err(syn::Error::new(
+								pat.span(),
+								"patterns are not supported in dyntrait methods",
+							))
+						},
 					};
 
 					if receiver.is_none() {

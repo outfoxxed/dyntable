@@ -222,10 +222,34 @@ pub struct MethodParam {
 }
 
 impl MethodParam {
-	/// List only parameter names from a list of `MethodParam`s
-	/// to pass as arguments.
-	pub fn idents<'s>(inputs: impl Iterator<Item = &'s Self>) -> impl Iterator<Item = &'s Ident> {
-		inputs.map(|Self { ident, .. }| ident)
+	/// List safe parameter names that will work regardless of the ident.
+	/// This allows `_` parameter names.
+	pub fn idents_safe<'s>(
+		inputs: impl Iterator<Item = &'s Self> + 's,
+	) -> impl Iterator<Item = Ident> + 's {
+		inputs
+			.enumerate()
+			.map(|(i, Self { ident, .. })| Ident::new(&format!("arg{i}"), ident.span()))
+	}
+
+	/// List safe names that will work regardless of the ident.
+	pub fn params_safe<'s>(
+		inputs: impl Iterator<Item = &'s Self> + 's,
+	) -> impl Iterator<Item = Self> + 's {
+		inputs.enumerate().map(
+			|(
+				i,
+				Self {
+					ident,
+					colon_token,
+					ty,
+				},
+			)| Self {
+				ident: Ident::new(&format!("arg{i}"), ident.span()),
+				colon_token: *colon_token,
+				ty: ty.clone(),
+			},
+		)
 	}
 }
 
