@@ -1,0 +1,17 @@
+error: missing required `self` parameter
+ --> tests/compile/fail/arguments.rs:9:2
+  |
+9 |     fn associated();
+  |     ^^^^^^^^^^^^^^^
+
+error: first parameter must be `self`
+  --> tests/compile/fail/arguments.rs:16:10
+   |
+16 |     fn test(foo: Bar);
+   |             ^^^
+
+error: `self` parameter must use implicit type syntax (e.g. `self`, `&self`, `&mut self`)
+  --> tests/compile/fail/arguments.rs:23:10
+   |
+23 |     fn test(self: Self);
+   |             ^^^^

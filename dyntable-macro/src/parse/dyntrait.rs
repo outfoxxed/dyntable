@@ -327,10 +327,6 @@ impl TryFrom<Signature> for MethodEntry {
 					}));
 				},
 				FnArg::Typed(ty) => {
-					if receiver.is_none() {
-						return Err(syn::Error::new(ty.span(), "missing `self`"))
-					}
-
 					let PatType {
 						pat,
 						ty,
@@ -338,6 +334,7 @@ impl TryFrom<Signature> for MethodEntry {
 						..
 					} = ty;
 
+					let pat_span = pat.span();
 					let Pat::Ident(PatIdent {
 						by_ref: None,
 						mutability: None,
@@ -348,6 +345,17 @@ impl TryFrom<Signature> for MethodEntry {
 						return Err(syn::Error::new(pat.span(), "patterns are not supported in dyntrait methods"))
 					};
 
+					if receiver.is_none() {
+						if ident.to_string() == "self" {
+							// explicitly typed self makes it impossible to determine if the
+							// type is a reference or value, due to type aliases and permitted
+							// wrappers.
+							return Err(syn::Error::new(ident.span(), "`self` parameter must use implicit type syntax (e.g. `self`, `&self`, `&mut self`)"));
+						} else {
+							return Err(syn::Error::new(pat_span, "first parameter must be `self`"))
+						}
+					}
+
 					args.push(MethodParam {
 						ident,
 						colon_token,
@@ -357,8 +365,8 @@ impl TryFrom<Signature> for MethodEntry {
 			}
 		}
 
-		let receiver =
-			receiver.ok_or_else(|| syn::Error::new(sig_span, "missing `self` parameter"))?;
+		let receiver = receiver
+			.ok_or_else(|| syn::Error::new(sig_span, "missing required `self` parameter"))?;
 
 		Ok(Self {
 			unsafety,
