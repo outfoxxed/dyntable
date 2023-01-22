@@ -11,6 +11,7 @@ pub trait NoBounds {}
 pub struct DynImplTarget<T, V: VTable>(PhantomData<(T, V)>);
 
 /// Copy of DynTrait used to prevent a recursive impl
+#[allow(clippy::missing_safety_doc)]
 pub unsafe trait DynTable2<'v, V: 'v + VTable> {
 	const VTABLE: V;
 	const STATIC_VTABLE: &'v V;
@@ -71,19 +72,19 @@ unsafe impl<T: VTable> VTable for SendSyncVTable<T> {
 	type Bounds = SendSyncWrapper<T::Bounds>;
 }
 
-unsafe impl<T: DropTable> DropTable for SendVTable<T> {
+impl<T: DropTable> DropTable for SendVTable<T> {
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
 	}
 }
 
-unsafe impl<T: DropTable> DropTable for SyncVTable<T> {
+impl<T: DropTable> DropTable for SyncVTable<T> {
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
 	}
 }
 
-unsafe impl<T: DropTable> DropTable for SendSyncVTable<T> {
+impl<T: DropTable> DropTable for SendSyncVTable<T> {
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
 	}

@@ -26,6 +26,10 @@ pub unsafe trait DynTable<'v, V: 'v + VTable> {
 }
 
 /// Marker trait for structs that are VTables
+///
+/// # Safety
+/// `Bounds` must accurately reflect the trait bounds of the trait
+/// thid VTable belongs to
 pub unsafe trait VTable {
 	/// Additional traits that a `Dyn<VTable>` can implement.
 	///
@@ -33,17 +37,21 @@ pub unsafe trait VTable {
 	type Bounds: ?Sized;
 }
 
-/// Trait used to drop objects behind a dyntable.
+/// Trait used to drop objects behind a dyntable
 ///
 /// Only nessesary for the outermost nested vtable,
 /// enables using it in a DynBox.
-pub unsafe trait DropTable: VTable {
+pub trait DropTable: VTable {
 	/// Drop the underlying type of this VTable, without
 	/// deallocating it.
+	///
+	/// # Safety
+	/// This function must drop the underlying value using
+	/// its drop function.
 	unsafe fn virtual_drop(&self, instance: *mut c_void);
 }
 
-/// VTable types with additional embedded VTable(s).
+/// VTable types with additional embedded VTable(s)
 pub trait SubTable<V: VTable>: VTable {
 	/// Gets a reference to an embedded VTable of type `V`
 	fn subtable(&self) -> &V;
@@ -51,7 +59,7 @@ pub trait SubTable<V: VTable>: VTable {
 
 impl<V: VTable> SubTable<V> for V {
 	fn subtable(&self) -> &V {
-		&self
+		self
 	}
 }
 
@@ -79,6 +87,13 @@ unsafe impl<V: VTableRepr + ?Sized> Sync for Dyn<V> where <V::VTable as VTable>:
 /// # Notes
 /// This trait is used as an implementation target for
 /// [`dyntable`] annotated traits.
+///
+/// # Safety
+/// * The pointer provided by `dyn_ptr` must be valid for
+/// at least the lifetime of self and must be compatible
+/// with the vtable provided by `dyn_vtable`.
+/// * The VTable pointer provided by `dyn_vtable` must be
+/// valid for at least the lifetime of self.
 pub unsafe trait AsDyn {
 	type Repr: VTableRepr + ?Sized;
 
@@ -123,6 +138,10 @@ pub mod alloc {
 		/// Deallocate a compatible block of memory, given a pointer
 		/// to it and associated information about it (usually the
 		/// memory layout or `()`)
+		///
+		/// # Safety
+		/// The given pointer must be allocated by this allocator,
+		/// and representable by the given layout.
 		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Self::DeallocLayout);
 	}
 
@@ -135,7 +154,7 @@ pub mod alloc {
 		/// # Errors
 		/// An [`AllocError`] is returned if the allocator cannot
 		/// allocate the specified memory block for any reason.
-		unsafe fn allocate(&self, layout: Self::AllocLayout) -> Result<NonNull<[u8]>, AllocError>;
+		fn allocate(&self, layout: Self::AllocLayout) -> Result<NonNull<[u8]>, AllocError>;
 	}
 
 	/// Layout of a block of memory
@@ -195,8 +214,8 @@ pub mod alloc {
 	impl<T: std::alloc::Allocator> Allocator for T {
 		type AllocLayout = RustLayout;
 
-		unsafe fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
-			<T as std::alloc::Allocator>::allocate(&self, layout.into()).map_err(|_| AllocError)
+		fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
+			<T as std::alloc::Allocator>::allocate(self, layout.into()).map_err(|_| AllocError)
 		}
 	}
 
@@ -205,7 +224,7 @@ pub mod alloc {
 		type DeallocLayout = RustLayout;
 
 		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: RustLayout) {
-			<T as std::alloc::Allocator>::deallocate(&self, ptr, layout.into());
+			<T as std::alloc::Allocator>::deallocate(self, ptr, layout.into());
 		}
 	}
 
@@ -213,8 +232,8 @@ pub mod alloc {
 	impl Allocator for GlobalAllocator {
 		type AllocLayout = RustLayout;
 
-		unsafe fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
-			std::alloc::Global.allocate(layout.into())
+		fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
+			std::alloc::Global.allocate(layout)
 		}
 	}
 
@@ -223,7 +242,7 @@ pub mod alloc {
 		type DeallocLayout = RustLayout;
 
 		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: RustLayout) {
-			std::alloc::Global.deallocate(ptr, layout.into());
+			std::alloc::Global.deallocate(ptr, layout);
 		}
 	}
 
@@ -231,11 +250,13 @@ pub mod alloc {
 	impl Allocator for GlobalAllocator {
 		type AllocLayout = RustLayout;
 
-		unsafe fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
-			Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
-				std::alloc::alloc(layout.into()),
-				0,
-			)))
+		fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
+			unsafe {
+				Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
+					std::alloc::alloc(layout.into()),
+					0,
+				)))
+			}
 		}
 	}
 
@@ -414,8 +435,12 @@ where
 		}
 	}
 
-	/// Constructs a `DynBox` from a raw pointer in the given allocator.
-	pub unsafe fn from_raw_in<'v, T>(raw: *mut T, alloc: A) -> Self
+	/// Constructs a `DynBox` from a raw pointer in the given allocator
+	///
+	/// # Safety
+	/// The pointer `ptr` must be an owned pointer to memory allocated
+	/// by the allocator `alloc`.
+	pub unsafe fn from_raw_in<'v, T>(ptr: *mut T, alloc: A) -> Self
 	where
 		T: DynTable<'v, V::VTable>,
 		V::VTable: 'v,
@@ -423,13 +448,20 @@ where
 		Self {
 			r#dyn: Dyn {
 				vtable: T::STATIC_VTABLE,
-				dynptr: raw as *mut c_void,
+				dynptr: ptr as *mut c_void,
 			},
 			alloc,
 			layout: A::DeallocLayout::new::<T>(),
 		}
 	}
 
+	/// Constructs a `DynBox` from a raw pointer and a layout in the
+	/// given allocator
+	///
+	/// # Safety
+	/// The pointer `ptr` must be an owned pointer to memory allocated
+	/// by the allocator `alloc`. It's memory layout must match the one
+	/// descibed by `layout`, and it must be compatible with the vtable `vtable`.
 	pub unsafe fn from_raw_dyn_in<'v>(
 		ptr: *mut c_void,
 		vtable: *const V::VTable,
@@ -449,14 +481,14 @@ where
 		}
 	}
 
-	pub fn borrow<'s>(&'s self) -> DynRef<'s, V> {
+	pub fn borrow(&self) -> DynRef<V> {
 		DynRef {
 			r#dyn: Dyn { ..self.r#dyn },
 			_lt: PhantomData,
 		}
 	}
 
-	pub fn borrow_mut<'s>(&'s mut self) -> DynRefMut<'s, V> {
+	pub fn borrow_mut(&mut self) -> DynRefMut<V> {
 		DynRefMut {
 			r#dyn: Dyn { ..self.r#dyn },
 			_lt: PhantomData,

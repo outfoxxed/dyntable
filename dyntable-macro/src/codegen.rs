@@ -519,7 +519,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				::core::ptr::drop_in_place(ptr as *mut T);
 			}
 
-			unsafe impl #impl_generics ::dyntable::DropTable
+			impl #impl_generics ::dyntable::DropTable
 			for #vtable_ident #ty_generics
 			#where_clause {
 				unsafe fn virtual_drop(&self, instance: *mut ::core::ffi::c_void) {
