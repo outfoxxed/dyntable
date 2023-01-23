@@ -1,3 +1,85 @@
+//!  -- TODO --
+//!
+//! # Basic Usage
+//! ```
+//! use dyntable::*;
+//!
+//! #[dyntable]
+//! trait Animal {
+//!     extern "C" fn eat_food(&mut self, amount: u32);
+//!     extern "C" fn is_full(&self) -> bool;
+//! }
+//!
+//! struct Dog {
+//!     food_count: u32,
+//! }
+//!
+//! struct Cat {
+//!     picky: bool,
+//!     food_count: u32,
+//! }
+//!
+//! impl Animal for Dog {
+//!     extern "C" fn eat_food(&mut self, amount: u32) {
+//!         self.food_count += amount;
+//!     }
+//!
+//!     extern "C" fn is_full(&self) -> bool {
+//!         self.food_count > 200
+//!     }
+//! }
+//!
+//! # // stub
+//! # fn random_chance() -> bool { true }
+//!
+//! impl Animal for Cat {
+//!     extern "C" fn eat_food(&mut self, amount: u32) {
+//!         if !self.picky || random_chance() {
+//!             self.food_count += amount;
+//!         }
+//!     }
+//!
+//!     extern "C" fn is_full(&self) -> bool {
+//!         self.food_count > 100
+//!     }
+//! }
+//!
+//! fn main() {
+//!    let mut pets = [
+//!        DynBox::<dyn Animal>::new(Dog {
+//!            food_count: 10,
+//!        }),
+//!        DynBox::<dyn Animal>::new(Cat {
+//!            picky: true,
+//!            food_count: 30,
+//!        }),
+//!        DynBox::<dyn Animal>::new(Cat {
+//!            picky: false,
+//!            food_count: 0,
+//!        }),
+//!    ];
+//!
+//!    // feed all the pets until they are full
+//!    loop {
+//!        let mut all_full = true;
+//!
+//!        // feed all the pets
+//!        for pet in &mut pets {
+//!            if !pet.is_full() {
+//!                pet.eat_food(10);
+//!                all_full = false;
+//!            }
+//!        }
+//!
+//!        // if all pets have finished eating we are done.
+//!        if all_full { break; }
+//!    }
+//! }
+//! ```
+//!
+//! # Crate Features
+//! - `allocator_api` - enable support for the unstable `allocator_api` stdlib feature
+
 #![cfg_attr(feature = "allocator_api", feature(allocator_api))]
 
 use std::{
@@ -85,7 +167,6 @@ pub struct Dyn<V: VTableRepr + ?Sized> {
 unsafe impl<V: VTableRepr + ?Sized> Send for Dyn<V> where <V::VTable as VTable>::Bounds: Send {}
 unsafe impl<V: VTableRepr + ?Sized> Sync for Dyn<V> where <V::VTable as VTable>::Bounds: Sync {}
 
-/// # Notes
 /// This trait is used as an implementation target for
 /// [`dyntable`] annotated traits.
 ///
@@ -106,9 +187,11 @@ pub unsafe trait AsDyn {
 	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable;
 	/// Deallocate the contained pointer without dropping
 	///
-	/// # Note
+	/// # Notes
 	/// This function may panic if it is unreasonable to
-	/// deallocate the contained pointer.
+	/// deallocate the contained pointer. (Such cases include
+	/// deallocating a [`Dyn`], which cannot be obtained except
+	/// behind a reference)
 	fn dyn_dealloc(self);
 }
 
@@ -208,10 +291,10 @@ pub mod alloc {
 		}
 	}
 
-	/// Rust global allocator
 	#[cfg(feature = "allocator_api")]
 	pub use std::alloc::Global as GlobalAllocator;
 	#[cfg(not(feature = "allocator_api"))]
+	/// The global memory allocator
 	pub struct GlobalAllocator;
 
 	#[cfg(feature = "allocator_api")]
@@ -550,4 +633,112 @@ where
 
 use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 
+/// This macro implements functionality required to use the
+/// annotated trait as a FFI safe [`Dyn`]ptr.
+///
+/// When applied to a trait, this macro will generate
+/// - A VTable representing the trait, including its bounds and methods.
+/// - Implementations of [`VTableRepr`], which provides a path
+///   to vtables associated with the trait.
+/// - An implementation of the trait for all types implementing
+///   [`AsDyn`]`<Repr = (your trait)>`, such as [`Dyn`]`<(your trait)>`.
+/// - Various boilerplate used in the above implementations.
+///
+/// # Trait Requirements
+/// - The trait must only contain methods (associated functions and const
+///   values are not yet supported)
+/// - All trait methods must explicitly specify their ABI, usually `C`, unless
+///   the `relax_abi = true` parameter is passed to the `#[dyntable]` invocation
+/// - No trait methods may have a receiver type other than `Self`, and must use
+///   the explicit self shorthand (`fn foo(&self)`)
+/// - The trait must be [object safe][ref-obj-safety].
+/// - All trait bounds (supertraits) must also be `#[dyntable]` annotated traits
+///   (except `Send` and `Sync`)
+/// - All trait bounds, including indirect bounds
+///   [must have a specified path](#trait-bound-paths).
+///
+/// ## Trait Bound Paths
+/// All trait bounds (supertraits), except `Send` and `Sync` must be annotated with
+/// `#[dyntable]`, and must be marked as such using the `dyn` keyword. This is
+/// required for `dyntable` to track indirect trait bounds.
+/// Below is an example:
+///
+/// ```
+/// # use dyntable::dyntable;
+/// #[dyntable]
+/// trait Animal {}
+///
+/// // `Animal` is a `#[dyntable]` trait and must be explicitly marked as such.
+/// #[dyntable]
+/// trait Dog: Animal
+/// where
+///     dyn Animal:,
+/// {}
+///
+/// // `Send` is not a `#[dyntable]` annotated trait, and it is an error
+/// // to mark it as such.
+/// #[dyntable]
+/// trait SendDog: Send + Animal
+/// where
+///     dyn Animal:,
+/// {}
+/// ```
+///
+/// Indirect trait bounds must also be specified to provide a path to the
+/// indirect trait bound's VTable from the target trait:
+///
+/// ```
+/// # use dyntable::dyntable;
+/// #[dyntable]
+/// trait Container {}
+///
+/// #[dyntable]
+/// trait FluidContainer: Container
+/// where
+///    dyn Container:,
+/// {}
+///
+/// #[dyntable]
+/// trait ConsumableContainer: Container
+/// where
+///     dyn Container:,
+/// {}
+///
+/// #[dyntable]
+/// trait Bottle: FluidContainer + ConsumableContainer
+/// where
+///     // The path to `Container` must be specified.
+///     dyn FluidContainer: Container,
+///     // Although it does not matter which path is used,
+///     // specifying it more than once is an error.
+///     dyn ConsumableContainer:,
+/// {}
+/// ```
+///
+/// # Macro Options
+/// - `repr` - The generated VTable's repr. `Rust` may be specified in addition
+///            to any repr permitted by the `#[repr(...)]` attribute.
+///            Defaults to `C`.
+/// - `relax_abi` - Relax the requirement that all methods must explicitly
+///                 specify their ABI. This restriction is in place to avoid
+///                 accidentally creating functions with the `Rust` ABI when
+///                 you want a FFI compatible abi, usually `C`, which is
+///                 dyntable's intended use case.
+///                 Defaults to `false`.
+/// - `drop` - Specify the existence and ABI of the VTable's `drop` function.
+///            Valid options are `none`, to remove the `drop` function, or
+///            any ABI permitted by the `extern "..."` specifier.
+///            Defaults to `C`.
+/// - `vtable` - Specify the name of the generated VTable.
+///              Defaults to `(your trait)VTable`.
+///
+/// All above options are optional. Below is an example of the `#[dyntable]`
+/// attribute with all options explicitly specified with default values:
+/// ```
+/// # use dyntable::dyntable;
+/// #[dyntable(repr = C, relax_abi = false, drop = C, vtable = MyTraitVTable)]
+/// trait MyTrait {}
+/// ```
+///
+/// [ref-obj-safety]: https://doc.rust-lang.org/reference/items/traits.html#object-safety
 pub use dyntable_macro::dyntable;
