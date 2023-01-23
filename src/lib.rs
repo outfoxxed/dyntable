@@ -208,6 +208,9 @@ pub mod alloc {
 	}
 
 	/// Rust global allocator
+	#[cfg(feature = "allocator_api")]
+	pub use std::alloc::Global as GlobalAllocator;
+	#[cfg(not(feature = "allocator_api"))]
 	pub struct GlobalAllocator;
 
 	#[cfg(feature = "allocator_api")]
@@ -225,24 +228,6 @@ pub mod alloc {
 
 		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: RustLayout) {
 			<T as std::alloc::Allocator>::deallocate(self, ptr, layout.into());
-		}
-	}
-
-	#[cfg(feature = "allocator_api")]
-	impl Allocator for GlobalAllocator {
-		type AllocLayout = RustLayout;
-
-		fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
-			std::alloc::Global.allocate(layout)
-		}
-	}
-
-	#[cfg(feature = "allocator_api")]
-	impl Deallocator for GlobalAllocator {
-		type DeallocLayout = RustLayout;
-
-		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: RustLayout) {
-			std::alloc::Global.deallocate(ptr, layout);
 		}
 	}
 
