@@ -58,6 +58,7 @@ pub trait SubTable<V: VTable>: VTable {
 }
 
 impl<V: VTable> SubTable<V> for V {
+	#[inline(always)]
 	fn subtable(&self) -> &V {
 		self
 	}
@@ -320,6 +321,7 @@ where
 impl<V: VTableRepr + ?Sized> Deref for DynRef<'_, V> {
 	type Target = Dyn<V>;
 
+	#[inline(always)]
 	fn deref(&self) -> &Self::Target {
 		&self.r#dyn
 	}
@@ -328,12 +330,14 @@ impl<V: VTableRepr + ?Sized> Deref for DynRef<'_, V> {
 impl<V: VTableRepr + ?Sized> Deref for DynRefMut<'_, V> {
 	type Target = Dyn<V>;
 
+	#[inline(always)]
 	fn deref(&self) -> &Self::Target {
 		&self.r#dyn
 	}
 }
 
 impl<V: VTableRepr + ?Sized> DerefMut for DynRefMut<'_, V> {
+	#[inline(always)]
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		&mut self.r#dyn
 	}
@@ -346,6 +350,7 @@ where
 {
 	type Target = Dyn<V>;
 
+	#[inline(always)]
 	fn deref(&self) -> &Self::Target {
 		&self.r#dyn
 	}
@@ -356,6 +361,7 @@ where
 	V: VTableRepr + ?Sized,
 	V::VTable: DropTable,
 {
+	#[inline(always)]
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		&mut self.r#dyn
 	}

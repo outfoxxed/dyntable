@@ -73,18 +73,21 @@ unsafe impl<T: VTable> VTable for SendSyncVTable<T> {
 }
 
 impl<T: DropTable> DropTable for SendVTable<T> {
+	#[inline(always)]
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
 	}
 }
 
 impl<T: DropTable> DropTable for SyncVTable<T> {
+	#[inline(always)]
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
 	}
 }
 
 impl<T: DropTable> DropTable for SendSyncVTable<T> {
+	#[inline(always)]
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
 	}

@@ -221,6 +221,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 							::dyntable::SubTable<<(dyn #child + 'static) as ::dyntable::VTableRepr>::VTable>
 						for #vtable_ident #ty_generics
 						#where_clause {
+							#[inline(always)]
 							fn subtable(&self) ->
 								&<(dyn #child + 'static) as ::dyntable::VTableRepr>::VTable
 							{
@@ -240,6 +241,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 					::dyntable::SubTable<<(dyn #subtable_path + 'static) as ::dyntable::VTableRepr>::VTable>
 				for #vtable_ident #ty_generics
 				#where_clause {
+					#[inline(always)]
 					fn subtable(&self) ->
 						&<(dyn #subtable_path + 'static) as ::dyntable::VTableRepr>::VTable
 					{
@@ -418,6 +420,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			};
 
 			quote::quote! {
+				#[inline(always)]
 				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#receiver, #(#param_list),*) #output
 				#fn_where_clause {
 					unsafe { #code }
@@ -522,6 +525,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			impl #impl_generics ::dyntable::DropTable
 			for #vtable_ident #ty_generics
 			#where_clause {
+				#[inline(always)]
 				unsafe fn virtual_drop(&self, instance: *mut ::core::ffi::c_void) {
 					(self.__drop)(instance)
 				}
