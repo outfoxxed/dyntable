@@ -96,46 +96,89 @@ use std::{
 #[path = "private.rs"]
 pub mod __private;
 
-/// Types with an associated VTable
+/// This trait associates a VTable with a trait.
 ///
 /// # Safety
 /// The VTable provided must be compatible with the type this
 /// trait is applied to.
+///
+/// # Notes
+/// This trait is implemented by the [`dyntable`] macro.
 pub unsafe trait DynTable<'v, V: 'v + VTable> {
-	/// The underlying VTable for the type this trait is applied to
+	/// The underlying VTable for the type this trait is applied to.
 	const VTABLE: V;
+	/// An instance of the `VTABLE` constant.
 	const STATIC_VTABLE: &'v V;
 }
 
-/// Marker trait for structs that are VTables
+/// This trait indicates that the target type is the VTable
+/// belonging to an associated trait.
+///
+/// A trait is considered to be associated with a VTable if
+/// an implementation of [`DynTable`] is present to link them
+/// together.
 ///
 /// # Safety
-/// `Bounds` must accurately reflect the trait bounds of the trait
-/// thid VTable belongs to
+/// The assoicated `Bounds` type must accurately reflect the
+/// trait bounds of the trait this VTable belongs to.
 pub unsafe trait VTable {
-	/// Additional traits that a `Dyn<VTable>` can implement.
+	/// Additional trait bounds required by the trait this VTable
+	/// belongs to.
 	///
-	/// Currently used for Send and Sync.
+	/// Bounds are intended to be specified as a `dyn <trait list>`.
+	///
+	/// # Notes
+	/// This trait is implemented by the [`dyntable`] macro.
+	///
+	/// This trait is used to apply [`Send`] and [`Sync`] to
+	/// dyntable containers.
 	type Bounds: ?Sized;
 }
 
-/// Trait used to drop objects behind a dyntable
+/// Trait providing a drop function for a given opaque pointer.
 ///
-/// Only nessesary for the outermost nested vtable,
-/// enables using it in a DynBox.
-pub trait DropTable: VTable {
-	/// Drop the underlying type of this VTable, without
-	/// deallocating it.
+/// An implementation of this trait allows a type associated with
+/// this VTable to be used in an owning dyntable container such as
+/// a [`DynBox`] in addition to non-owning dyntable containers such
+/// as [`DynRef`] which can be used without `DropTable`.
+///
+/// # Safety
+/// `vitrual_drop` must drop the given pointer as if it was a
+/// pointer to a type associated with this VTable.
+///
+/// A type is considered to be associated with this VTable if
+/// there is an implementation of [`DynTable`] associating
+/// this VTable with the type.
+///
+/// # Notes
+/// This trait is implemented by the [`dyntable`] macro.
+///
+/// This trait is only nessesary for the outermost vtable when
+/// VTables are contained within eachother.
+pub unsafe trait DropTable: VTable {
+	/// Drop the given pointer as if it is a pointer to a
+	/// type associated with this VTable, without deallocating
+	/// the given pointer.
 	///
 	/// # Safety
-	/// This function must drop the underlying value using
-	/// its drop function.
+	/// The pointer must point to a valid instance of a type
+	/// this VTable is able to drop. After calling this function
+	/// the instance pointed to by this pointer must be considered
+	/// to be dropped.
 	unsafe fn virtual_drop(&self, instance: *mut c_void);
 }
 
-/// VTable types with additional embedded VTable(s)
+/// This trait describes this VTable as containing another
+/// VTable.
+///
+/// # Notes
+/// This trait is implemented by the [`dyntable`] macro.
+///
+/// This trait is used along with an implementation of [`AsDyn`]
+/// to allow calling functions associated with bounded traits
+/// of this VTable's associated trait.
 pub trait SubTable<V: VTable>: VTable {
-	/// Gets a reference to an embedded VTable of type `V`
+	/// Returns a reference to the contained VTable of type `V`.
 	fn subtable(&self) -> &V;
 }
 
@@ -146,18 +189,19 @@ impl<V: VTable> SubTable<V> for V {
 	}
 }
 
-/// Marker for representations of VTables to use in generics
+/// Marker for representations of VTables to use in generics.
 ///
 /// This allows specifying the type this trait is implemented on
 /// in place of its VTable in generics, allowing for a clearer interface.
 ///
-/// Implementations are automatically generated with the [`dyntable`] macro
+/// # Notes
+/// This trait is implemented by the [`dyntable`] macro.
 /// for `dyn Trait`, so `MyTraitVTable` can be used as `dyn MyTrait`.
 pub trait VTableRepr {
 	type VTable: VTable;
 }
 
-/// FFI safe wide pointer to a trait `V`
+/// An FFI safe wide pointer to a dyntable trait.
 #[repr(C)]
 pub struct Dyn<V: VTableRepr + ?Sized> {
 	vtable: *const V::VTable,
@@ -167,49 +211,64 @@ pub struct Dyn<V: VTableRepr + ?Sized> {
 unsafe impl<V: VTableRepr + ?Sized> Send for Dyn<V> where <V::VTable as VTable>::Bounds: Send {}
 unsafe impl<V: VTableRepr + ?Sized> Sync for Dyn<V> where <V::VTable as VTable>::Bounds: Sync {}
 
-/// This trait is used as an implementation target for
-/// [`dyntable`] annotated traits.
+/// This trait implements the trait described by its `Repr`.
 ///
 /// # Safety
-/// * The pointer provided by `dyn_ptr` must be valid for
+/// The pointer provided by `dyn_ptr` must be valid for
 /// at least the lifetime of self and must be compatible
 /// with the vtable provided by `dyn_vtable`.
-/// * The VTable pointer provided by `dyn_vtable` must be
+///
+/// The VTable pointer provided by `dyn_vtable` must be
 /// valid for at least the lifetime of self.
+///
+/// # Notes
+/// This trait is used to implement dyntable container types.
 pub unsafe trait AsDyn {
+	/// The dyn Trait that will be implemented for this type
 	type Repr: VTableRepr + ?Sized;
 
-	/// # Safety
-	/// This pointer is valid for at least `'self`.
+	/// Returns a pointer to the underlying data of this dynptr.
+	///
+	/// The provided pointer will be valid for at least the lifetime
+	/// of this value.
 	fn dyn_ptr(&self) -> *mut c_void;
-	/// # Safety
-	/// This pointer is valid for at least `'self`.
+	/// Returns a pointer to the vtable used to interact with the pointer
+	/// provided by `dyn_ptr`.
+	///
+	/// The provided pointer will be valid for at least the lifetime
+	/// of this value.
 	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable;
 	/// Deallocate the contained pointer without dropping
 	///
-	/// # Notes
 	/// This function may panic if it is unreasonable to
-	/// deallocate the contained pointer. (Such cases include
+	/// deallocate the contained pointer. Such cases include
 	/// deallocating a [`Dyn`], which cannot be obtained except
-	/// behind a reference)
+	/// behind a reference.
 	fn dyn_dealloc(self);
 }
 
-/// Alternate form of &Dyn used to keep the vtable reference available
+/// Reference to a dyntable Trait, equivalent to `&dyn Trait`.
+///
+/// # Notes
+/// A `&Dyn<dyn Trait>` may be used the same way as a `DynRef<dyn Trait>`.
 #[repr(C)]
 pub struct DynRef<'a, V: VTableRepr + ?Sized> {
 	r#dyn: Dyn<V>,
 	_lt: PhantomData<&'a ()>,
 }
 
-/// Alternate form of &mut Dyn used to keep the vtable reference available
+/// Reference to a dyntable Trait, equivalent to `&mut dyn Trait`.
+///
+/// # Notes
+/// A `&mut Dyn<dyn Trait>` may be used the same way as a `DynRefMut<dyn Trait>`.
 #[repr(C)]
 pub struct DynRefMut<'a, V: VTableRepr + ?Sized> {
 	r#dyn: Dyn<V>,
 	_lt: PhantomData<&'a ()>,
 }
 
-/// Stand-in for `allocator_api` types.
+/// Stand-in memory allocation types for the ones provided by
+/// the `allocator_api` rust unstable feature.
 pub mod alloc {
 	use std::{alloc::Layout, ptr::NonNull};
 
@@ -219,6 +278,7 @@ pub mod alloc {
 	/// implement `Allocator`)
 	pub trait Deallocator {
 		type DeallocLayout: MemoryLayout;
+
 		/// Deallocate a compatible block of memory, given a pointer
 		/// to it and associated information about it (usually the
 		/// memory layout or `()`)
@@ -233,6 +293,7 @@ pub mod alloc {
 	/// memory given its layout.
 	pub trait Allocator: Deallocator {
 		type AllocLayout: MemoryLayout;
+
 		/// Allocate a block of memory, given it's layout
 		///
 		/// # Errors
@@ -247,6 +308,7 @@ pub mod alloc {
 	pub trait MemoryLayout: Clone {
 		/// Construct a new memory layout capable of representing `T`
 		fn new<T>() -> Self;
+
 		/// Indicates if a memory layout is zero sized, in which case
 		/// no memory should actually be allocated
 		fn is_zero_sized(&self) -> bool;
@@ -339,9 +401,9 @@ pub mod alloc {
 	}
 }
 
-/// FFI Safe `Box<dyn V>`
+/// An FFI safe Box that operates on dyntable traits.
 ///
-/// Owned version of [`Dyn`]
+/// Effectively an owned [`Dyn`].
 #[repr(C)]
 pub struct DynBox<V, A = GlobalAllocator>
 where
@@ -456,9 +518,10 @@ where
 	V: VTableRepr + ?Sized,
 	V::VTable: DropTable,
 {
-	/// Construct a `DynBox` by moving a value
-	/// into the global allocator.
+	/// Allocates memory using the global allocator and moves `data` into
+	/// the allocated memory, upcasting it to `V`.
 	///
+	/// # Panics
 	/// Panics on allocation failure
 	pub fn new<'v, T>(data: T) -> DynBox<V, GlobalAllocator>
 	where
@@ -468,8 +531,8 @@ where
 		DynBox::new_in(data, GlobalAllocator)
 	}
 
-	/// Construct a `DynBox` by moving a value
-	/// into the given allocator.
+	/// Allocates memory using the given allocator and moves `data` into
+	/// the allocated memory, upcasting it to `V`.
 	///
 	/// # Panics
 	/// Panics on allocation failure
@@ -485,8 +548,9 @@ where
 		}
 	}
 
-	/// Attempt to construct a `DynBox` by moving a value
-	/// into the given allocator.
+	/// Allocates memory using the given allocator and moves `data` into
+	/// the allocated memory, upcasting it to `V`, and returning an error
+	/// if the allocation fails.
 	pub fn try_new_in<'v, T>(data: T, alloc: A) -> Result<Self, AllocError>
 	where
 		A: Allocator,
@@ -509,11 +573,15 @@ where
 		}
 	}
 
-	/// Constructs a `DynBox` from a raw pointer in the given allocator
+	/// Constructs a `DynBox` from a raw pointer in the given allocator,
+	/// upcasting the pointed value to `V`.
+	///
+	/// After calling this function, the raw pointer is considered to be
+	/// owned by the `DynBox` and will be cleaned up as such.
 	///
 	/// # Safety
-	/// The pointer `ptr` must be an owned pointer to memory allocated
-	/// by the allocator `alloc`.
+	/// The pointer `ptr` must be an owned pointer to a valid `T` allocated
+	/// by the given allocator.
 	pub unsafe fn from_raw_in<'v, T>(ptr: *mut T, alloc: A) -> Self
 	where
 		T: DynTable<'v, V::VTable>,
@@ -529,13 +597,17 @@ where
 		}
 	}
 
-	/// Constructs a `DynBox` from a raw pointer and a layout in the
-	/// given allocator
+	/// Constructs a `DynBox` from a raw pointer in the given allocator
+	/// and its memory layout, upcasting the pointed value to `V`.
+	///
+	/// After calling this function, the raw pointer is considered to be
+	/// owned by the `DynBox` and will be cleaned up as such.
 	///
 	/// # Safety
 	/// The pointer `ptr` must be an owned pointer to memory allocated
 	/// by the allocator `alloc`. It's memory layout must match the one
-	/// descibed by `layout`, and it must be compatible with the vtable `vtable`.
+	/// provided by `layout`, and it must be compatible with the provided
+	/// vtable.
 	pub unsafe fn from_raw_dyn_in<'v>(
 		ptr: *mut c_void,
 		vtable: *const V::VTable,
@@ -555,6 +627,7 @@ where
 		}
 	}
 
+	/// Immutably borrows the wrapped value.
 	pub fn borrow(&self) -> DynRef<V> {
 		DynRef {
 			r#dyn: Dyn { ..self.r#dyn },
@@ -562,6 +635,7 @@ where
 		}
 	}
 
+	/// Mutably borrows the wrapped value.
 	pub fn borrow_mut(&mut self) -> DynRefMut<V> {
 		DynRefMut {
 			r#dyn: Dyn { ..self.r#dyn },
@@ -638,6 +712,7 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 ///
 /// When applied to a trait, this macro will generate
 /// - A VTable representing the trait, including its bounds and methods.
+///   (see [VTable Representation](#vtable-representation))
 /// - Implementations of [`VTableRepr`], which provides a path
 ///   to vtables associated with the trait.
 /// - An implementation of the trait for all types implementing
@@ -738,6 +813,31 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// # use dyntable::dyntable;
 /// #[dyntable(repr = C, relax_abi = false, drop = C, vtable = MyTraitVTable)]
 /// trait MyTrait {}
+/// ```
+///
+/// # VTable Representation
+/// VTables are represented as a struct that is by default `#[repr(C)]` (see
+/// the `repr` option described in [Macro Options](#macro-options)).
+/// The VTable entries are laid out in the order they have been listed in,
+/// preceeded by a pointer to the type's `drop` function if the drop function
+/// has not been disabled as shown below:
+///
+/// ```
+/// # use dyntable::dyntable;
+/// #[dyntable]
+/// trait MyTrait {
+///     extern "C" fn my_function(&self);
+/// }
+/// ```
+///
+/// Will generate a VTable like the one below:
+///
+/// ```
+/// #[repr(C)]
+/// struct MyTraitVTable {
+///     drop: unsafe extern "C" fn(*mut core::ffi::c_void),
+///     my_function: extern "C" fn(*const core::ffi::c_void),
+/// }
 /// ```
 ///
 /// [ref-obj-safety]: https://doc.rust-lang.org/reference/items/traits.html#object-safety

@@ -522,7 +522,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				::core::ptr::drop_in_place(ptr as *mut T);
 			}
 
-			impl #impl_generics ::dyntable::DropTable
+			unsafe impl #impl_generics ::dyntable::DropTable
 			for #vtable_ident #ty_generics
 			#where_clause {
 				#[inline(always)]
