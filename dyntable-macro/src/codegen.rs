@@ -439,8 +439,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		#vtable_repr
 		struct #vtable_ident #ty_generics
 		#where_clause {
-			#(#vtable_entries,)*
 			#(__drop: unsafe #drop_abi fn(*mut ::core::ffi::c_void),)*
+			#(#vtable_entries,)*
 			__generics: ::core::marker::PhantomData<#vtable_phantom_generics>
 		}
 
@@ -508,8 +508,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics =
 				&<Self as #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>>::VTABLE;
 			const VTABLE: #vtable_ident #ty_generics = #vtable_ident {
-				#(#impl_vtable_entries,)*
 				#(__drop: #drop_fn_ident::<__DynTarget>,)*
+				#(#impl_vtable_entries,)*
 				__generics: ::core::marker::PhantomData,
 			};
 		}
