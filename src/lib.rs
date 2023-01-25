@@ -96,7 +96,8 @@ use std::{
 #[path = "private.rs"]
 pub mod __private;
 
-/// This trait associates a VTable with a trait.
+/// This trait provides an instance of the given VTable matching this
+/// type.
 ///
 /// # Safety
 /// The VTable provided must be compatible with the type this
@@ -111,12 +112,7 @@ pub unsafe trait DynTable<'v, V: 'v + VTable> {
 	const STATIC_VTABLE: &'v V;
 }
 
-/// This trait indicates that the target type is the VTable
-/// belonging to an associated trait.
-///
-/// A trait is considered to be associated with a VTable if
-/// an implementation of [`DynTable`] is present to link them
-/// together.
+/// This trait indicates that the target type is the VTable.
 ///
 /// # Safety
 /// The assoicated `Bounds` type must accurately reflect the
@@ -145,10 +141,6 @@ pub unsafe trait VTable {
 /// # Safety
 /// `vitrual_drop` must drop the given pointer as if it was a
 /// pointer to a type associated with this VTable.
-///
-/// A type is considered to be associated with this VTable if
-/// there is an implementation of [`DynTable`] associating
-/// this VTable with the type.
 ///
 /// # Notes
 /// This trait is implemented by the [`dyntable`] macro.
