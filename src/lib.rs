@@ -196,8 +196,10 @@ pub trait VTableRepr {
 /// An FFI safe wide pointer to a dyntable trait.
 #[repr(C)]
 pub struct Dyn<V: VTableRepr + ?Sized> {
-	vtable: *const V::VTable,
+	// Having the data pointer before the VTable pointer generates
+	// better ASM. (the compiler cannot change layout due to #[repr(C)])
 	dynptr: *mut c_void,
+	vtable: *const V::VTable,
 }
 
 unsafe impl<V: VTableRepr + ?Sized> Send for Dyn<V> where <V::VTable as VTable>::Bounds: Send {}
