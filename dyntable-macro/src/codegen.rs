@@ -32,7 +32,9 @@ use crate::parse::{
 /// Generate expanded macro code from trait body
 pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let vtable_ident = &dyntrait.vtable.name;
+	let vis = &dyntrait.vis;
 	let ident = &dyntrait.dyntrait.ident;
+	let trait_attrs = &dyntrait.dyntrait.attrs;
 	let proxy_trait = format_ident!("__DynTable_{}", dyntrait.dyntrait.ident);
 	let (impl_generics, ty_generics, where_clause) = dyntrait.generics.split_for_impl();
 
@@ -167,7 +169,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			.into_iter();
 
 			quote::quote! {
-				#ident: #unsafety #abi #fn_token (
+				#vis #ident: #unsafety #abi #fn_token (
 					*#self_ptr_type ::core::ffi::c_void,
 					#(#inputs),*
 				) #( -> #output)*
@@ -430,18 +432,19 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	});
 
 	quote::quote! {
-		trait #ident #ty_generics #(: #trait_bounds)*
+		#(#trait_attrs)*
+		#vis trait #ident #ty_generics #(: #trait_bounds)*
 		#where_clause {
 			#(#trait_entries)*
 		}
 
 		#[allow(non_snake_case)]
 		#vtable_repr
-		struct #vtable_ident #ty_generics
+		#vis struct #vtable_ident #ty_generics
 		#where_clause {
-			#(__drop: unsafe #drop_abi fn(*mut ::core::ffi::c_void),)*
+			#(#vis __drop: unsafe #drop_abi fn(*mut ::core::ffi::c_void),)*
 			#(#vtable_entries,)*
-			__generics: ::core::marker::PhantomData<#vtable_phantom_generics>
+			#vis __generics: ::core::marker::PhantomData<#vtable_phantom_generics>
 		}
 
 		#vtable_bound_trait

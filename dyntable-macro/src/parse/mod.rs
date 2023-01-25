@@ -5,6 +5,7 @@ use syn::{
 	punctuated::Punctuated,
 	spanned::Spanned,
 	token,
+	Attribute,
 	Generics,
 	Ident,
 	Lifetime,
@@ -42,6 +43,7 @@ pub struct VTableInfo {
 
 #[derive(Debug)]
 pub struct TraitInfo {
+	pub attrs: Vec<Attribute>,
 	pub ident: Ident,
 	pub trait_token: Token![trait],
 	pub colon_token: Option<Token![:]>,
@@ -317,6 +319,7 @@ impl DynTraitInfo {
 				),
 			},
 			dyntrait: TraitInfo {
+				attrs: trait_body.attrs,
 				ident: trait_body.ident,
 				trait_token: trait_body.trait_token,
 				colon_token: trait_body.colon_token,

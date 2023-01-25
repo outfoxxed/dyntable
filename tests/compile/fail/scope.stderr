@@ -1,0 +1,25 @@
+error[E0603]: trait `PrivTrait` is private
+ --> tests/compile/fail/scope.rs:1:12
+  |
+1 | use test::{PrivTrait, PrivTraitVTable};
+  |            ^^^^^^^^^ private trait
+  |
+note: the trait `PrivTrait` is defined here
+ --> tests/compile/fail/scope.rs:8:2
+  |
+8 |     #[dyntable]
+  |     ^^^^^^^^^^^
+  = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0603]: struct `PrivTraitVTable` is private
+ --> tests/compile/fail/scope.rs:1:23
+  |
+1 | use test::{PrivTrait, PrivTraitVTable};
+  |                       ^^^^^^^^^^^^^^^ private struct
+  |
+note: the struct `PrivTraitVTable` is defined here
+ --> tests/compile/fail/scope.rs:8:2
+  |
+8 |     #[dyntable]
+  |     ^^^^^^^^^^^
+  = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
