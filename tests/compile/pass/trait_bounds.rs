@@ -2,7 +2,7 @@
 //! compile successfully. It also ensures that methods defined
 //! in bound traits are callable.
 
-use dyntable::{Dyn, dyntable};
+use dyntable::{DynRef, dyntable};
 
 fn main() {}
 
@@ -19,7 +19,7 @@ where
 	dyn BaseTrait:,
 {}
 
-fn call_base_from_level1(instance: &Dyn<dyn Level1Trait>) {
+fn call_base_from_level1(instance: DynRef<dyn Level1Trait>) {
 	instance.base_method();
 }
 
@@ -29,7 +29,7 @@ where
 	dyn Level1Trait: BaseTrait,
 {}
 
-fn call_base_from_level2(instance: &Dyn<dyn Level2Trait>) {
+fn call_base_from_level2(instance: DynRef<dyn Level2Trait>) {
 	instance.base_method();
 }
 
@@ -61,7 +61,7 @@ where
 	dyn Level1Trait: BaseTrait,
 {}
 
-fn call_base_from_level4_1(instance: &Dyn<dyn Level4Trait1>) {
+fn call_base_from_level4_1(instance: DynRef<dyn Level4Trait1>) {
 	instance.base_method();
 }
 
@@ -74,6 +74,6 @@ where
 	dyn Level1Trait: BaseTrait,
 {}
 
-fn call_base_from_level4_2(instance: &Dyn<dyn Level4Trait2>) {
+fn call_base_from_level4_2(instance: DynRef<dyn Level4Trait2>) {
 	instance.base_method();
 }

@@ -1,4 +1,4 @@
-use dyntable::{Dyn, AsDyn};
+use dyntable::{DynRef, AsDyn};
 use test::PubTrait;
 
 fn main() {}
@@ -12,11 +12,11 @@ mod test {
 	}
 }
 
-fn test(test: &Dyn<dyn PubTrait>) {
+fn test(test: DynRef<dyn PubTrait>) {
 	// method is callable
 	test.test();
 	// vtable fields are accessable
-	let vtable = unsafe { &*<Dyn<dyn PubTrait> as AsDyn>::dyn_vtable(test) };
+	let vtable = unsafe { &*test.dyn_vtable() };
 	let _ = vtable.__drop;
 	let _ = vtable.test;
 	let _ = vtable.__generics;
