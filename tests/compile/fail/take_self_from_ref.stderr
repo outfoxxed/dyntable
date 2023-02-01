@@ -1,0 +1,29 @@
+error[E0507]: cannot move out of dereference of `DynRef<'_, dyn SelfTaker>`
+  --> tests/compile/fail/take_self_from_ref.rs:11:2
+   |
+11 |     dynref.takes_self();
+   |     ^^^^^^^------------
+   |     |      |
+   |     |      value moved due to this method call
+   |     move occurs because value has type `DynRefCallProxy<'_, dyn SelfTaker>`, which does not implement the `Copy` trait
+   |
+note: this function takes ownership of the receiver `self`, which moves value
+  --> tests/compile/fail/take_self_from_ref.rs:7:16
+   |
+7  |     fn takes_self(self);
+   |                   ^^^^
+
+error[E0507]: cannot move out of dereference of `DynRefMut<'_, dyn SelfTaker>`
+  --> tests/compile/fail/take_self_from_ref.rs:15:2
+   |
+15 |     dynref.takes_self();
+   |     ^^^^^^^------------
+   |     |      |
+   |     |      value moved due to this method call
+   |     move occurs because value has type `DynRefCallProxy<'_, dyn SelfTaker>`, which does not implement the `Copy` trait
+   |
+note: this function takes ownership of the receiver `self`, which moves value
+  --> tests/compile/fail/take_self_from_ref.rs:7:16
+   |
+7  |     fn takes_self(self);
+   |                   ^^^^
