@@ -1,4 +1,4 @@
-use dyntable::{dyntable, DynRef, DynRefMut};
+use dyntable::{dyntable, Dyn};
 
 fn main() {}
 
@@ -7,10 +7,10 @@ trait SelfTaker {
 	fn takes_self(self);
 }
 
-fn _from_ref(dynref: DynRef<dyn SelfTaker>) {
+fn _from_ref(dynref: &Dyn<dyn SelfTaker>) {
 	dynref.takes_self();
 }
 
-fn _from_mut_ref(dynref: DynRefMut<dyn SelfTaker>) {
+fn _from_mut_ref(dynref: &mut Dyn<dyn SelfTaker>) {
 	dynref.takes_self();
 }

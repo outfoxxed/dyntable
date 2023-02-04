@@ -157,7 +157,7 @@ pub struct Subtable {
 	pub subtables: Vec<Subtable>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MethodEntry {
 	pub unsafety: Option<Token![unsafe]>,
 	pub abi: Option<syn::Abi>,
@@ -171,13 +171,13 @@ pub struct MethodEntry {
 	pub output: ReturnType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MethodReceiver {
 	Reference(ReceiverReference),
 	Value(Token![self]),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReceiverReference {
 	pub reference: (Token![&], Option<Lifetime>),
 	pub mutability: Option<Token![mut]>,
@@ -216,7 +216,7 @@ impl ToTokens for MethodReceiver {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MethodParam {
 	pub ident: Ident,
 	pub colon_token: Token![:],

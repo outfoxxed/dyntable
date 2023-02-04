@@ -1,29 +1,39 @@
-error[E0507]: cannot move out of dereference of `DynRef<'_, dyn SelfTaker>`
+error[E0277]: the size for values of type `[dyntable::DynRefInternalRepr<dyn SelfTaker>]` cannot be known at compilation time
   --> tests/compile/fail/take_self_from_ref.rs:11:2
    |
 11 |     dynref.takes_self();
-   |     ^^^^^^^------------
-   |     |      |
-   |     |      value moved due to this method call
-   |     move occurs because value has type `DynRefCallProxy<'_, dyn SelfTaker>`, which does not implement the `Copy` trait
+   |     ^^^^^^ ---------- required by a bound introduced by this call
+   |     |
+   |     doesn't have a size known at compile-time
    |
-note: this function takes ownership of the receiver `self`, which moves value
-  --> tests/compile/fail/take_self_from_ref.rs:7:16
+   = help: within `Dyn<dyn SelfTaker>`, the trait `Sized` is not implemented for `[dyntable::DynRefInternalRepr<dyn SelfTaker>]`
+   = note: required because it appears within the type `Dyn<dyn SelfTaker>`
+note: required by a bound in `SelfTaker::takes_self`
+  --> tests/compile/fail/take_self_from_ref.rs:5:1
    |
+5  | #[dyntable(relax_abi = true)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `SelfTaker::takes_self`
+6  | trait SelfTaker {
 7  |     fn takes_self(self);
-   |                   ^^^^
+   |        ---------- required by a bound in this
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0507]: cannot move out of dereference of `DynRefMut<'_, dyn SelfTaker>`
+error[E0277]: the size for values of type `[dyntable::DynRefInternalRepr<dyn SelfTaker>]` cannot be known at compilation time
   --> tests/compile/fail/take_self_from_ref.rs:15:2
    |
 15 |     dynref.takes_self();
-   |     ^^^^^^^------------
-   |     |      |
-   |     |      value moved due to this method call
-   |     move occurs because value has type `DynRefCallProxy<'_, dyn SelfTaker>`, which does not implement the `Copy` trait
+   |     ^^^^^^ ---------- required by a bound introduced by this call
+   |     |
+   |     doesn't have a size known at compile-time
    |
-note: this function takes ownership of the receiver `self`, which moves value
-  --> tests/compile/fail/take_self_from_ref.rs:7:16
+   = help: within `Dyn<dyn SelfTaker>`, the trait `Sized` is not implemented for `[dyntable::DynRefInternalRepr<dyn SelfTaker>]`
+   = note: required because it appears within the type `Dyn<dyn SelfTaker>`
+note: required by a bound in `SelfTaker::takes_self`
+  --> tests/compile/fail/take_self_from_ref.rs:5:1
    |
+5  | #[dyntable(relax_abi = true)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `SelfTaker::takes_self`
+6  | trait SelfTaker {
 7  |     fn takes_self(self);
-   |                   ^^^^
+   |        ---------- required by a bound in this
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)

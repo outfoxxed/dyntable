@@ -38,6 +38,7 @@ impl TestTable for TestStruct {
 #[test]
 fn test() {
 	let mut dynbox = DynBox::<dyn TestTable>::new(TestStruct { number: 42 });
+
 	assert_eq!(dynbox.get(), 42);
 	let v = dynbox.get();
 	dynbox.set(v + 10);

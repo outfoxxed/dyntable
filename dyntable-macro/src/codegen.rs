@@ -103,7 +103,33 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	.collect::<Vec<_>>();
 
 	let trait_entries = dyntrait.entries.iter().flat_map(|entry| match entry {
-		VTableEntry::Method(method) => Some(method),
+		VTableEntry::Method(method) => Some({
+			match &method.receiver {
+				MethodReceiver::Reference(_) => method.to_token_stream(),
+				MethodReceiver::Value(_) => {
+					let MethodEntry {
+						unsafety,
+						abi,
+						fn_token,
+						ident,
+						generics,
+						receiver,
+						inputs,
+						output,
+					} = &method;
+					let (_, fn_ty_generics, _) = generics.split_for_impl();
+
+					let where_entries = method.generics.params.iter();
+
+					quote::quote! {
+						#unsafety #abi #fn_token #ident #fn_ty_generics (#receiver, #(#inputs),*) #output
+						where
+							Self: ::std::marker::Sized,
+							#(#where_entries,)*;
+					}
+				}
+			}
+		}),
 		_ => None,
 	});
 
@@ -397,9 +423,12 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				_ => TokenStream::new(),
 			};
 
-			let (_, fn_ty_generics, fn_where_clause) = generics.split_for_impl();
+			let (_, fn_ty_generics, _) = generics.split_for_impl();
 			let param_list = MethodParam::params_safe(inputs.iter());
 			let arg_list = MethodParam::idents_safe(inputs.iter());
+
+			let where_entries = generics.where_clause.iter().flat_map(|where_clause| &where_clause.predicates);
+			let mut where_sized = Option::None;
 
 			let code = match receiver {
 				MethodReceiver::Reference(_) => quote::quote! {
@@ -408,23 +437,32 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 					>::subtable(&*self.dyn_vtable()).#fn_ident)
 						(self.dyn_ptr(), #(#arg_list),*)
 				},
-				MethodReceiver::Value(_) => quote::quote! {
-					// call the function, the function will consider the pointer
-					// to be by value
-					let __dyn_result = #reborrow (::dyntable::SubTable::<
-						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
-					>::subtable(&*self.dyn_vtable()).#fn_ident)
-						(self.dyn_ptr(), #(#arg_list),*);
-					// deallocate the pointer without dropping it
-					self.dyn_dealloc();
-					__dyn_result
+				MethodReceiver::Value(_) => {
+					where_sized = Some(quote::quote! { Self: ::std::marker::Sized });
+
+					quote::quote! {
+						// call the function, the function will consider the pointer
+						// to be by value
+						let __dyn_result = #reborrow (::dyntable::SubTable::<
+							<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
+						>::subtable(&*self.dyn_vtable()).#fn_ident)
+							(self.dyn_ptr(), #(#arg_list),*);
+						// deallocate the pointer without dropping it
+						self.dyn_dealloc();
+						__dyn_result
+					}
 				},
 			};
+
+			let where_sized = where_sized.into_iter();
 
 			quote::quote! {
 				#[inline(always)]
 				#unsafety #abi #fn_token #fn_ident #fn_ty_generics (#receiver, #(#param_list),*) #output
-				#fn_where_clause {
+				where
+					#(#where_sized,)*
+					#(#where_entries,)*
+				{
 					unsafe { #code }
 				}
 			}
@@ -541,7 +579,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		> #ident #ty_generics for __AsDyn
 		where
 			#(#where_predicates,)*
-			__AsDyn: ::dyntable::AsDyn #(+ #as_dyn_bounds)*,
+			__AsDyn: ::dyntable::AsDyn + ?::std::marker::Sized #(+ #as_dyn_bounds)*,
 			<__AsDyn::Repr as ::dyntable::VTableRepr>::VTable:
 				::dyntable::SubTable<#vtable_ident #ty_generics>
 				#(+ ::dyntable::SubTable<

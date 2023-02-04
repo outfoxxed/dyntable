@@ -88,7 +88,7 @@ use std::{
 	marker::PhantomData,
 	mem::{self, MaybeUninit},
 	ops::{Deref, DerefMut},
-	ptr::NonNull,
+	ptr::{NonNull, self},
 };
 
 /// Dyntable implementation details. You should not depend on these.
@@ -193,38 +193,204 @@ pub trait VTableRepr {
 	type VTable: VTable;
 }
 
-/// An FFI safe wide pointer to a dyntable trait, AKA dynptr.
+/// Data of a `*Dyn<V>`.
 ///
-/// Use [DynRef::from_raw] or [DynRefMut::from_raw] to call functions
-/// on this pointer.
+/// Use [`Dyn::from_raw`], [`Dyn::as_raw`] and friends to convert from
+/// a `DynData<V>` to a `*Dyn<V>` and back.
 #[repr(C)]
-pub struct DynPtr<V: VTableRepr + ?Sized> {
+pub struct DynData<V: VTableRepr + ?Sized> {
 	// Having the data pointer before the VTable pointer generates
 	// better ASM. (the compiler cannot change layout due to #[repr(C)])
 	pub ptr: *mut c_void,
 	pub vtable: *const V::VTable,
 }
 
-impl<V: VTableRepr + ?Sized> Copy for DynPtr<V> {}
-impl<V: VTableRepr + ?Sized> Clone for DynPtr<V> {
-	fn clone(&self) -> Self { *self }
+impl<V: VTableRepr + ?Sized> Copy for DynData<V> {}
+impl<V: VTableRepr + ?Sized> Clone for DynData<V> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+impl<V: VTableRepr + ?Sized> DynData<V> {
+	/// Create a `DynData` representing the given pointer, ensuring
+	/// that the resulting `DynData` can be safely used as a fat
+	/// pointer.
+	#[inline(always)]
+	pub fn into_dyn<'v, T>(ptr: *mut T) -> Self
+	where
+		T: DynTable<'v, V::VTable>,
+		V::VTable: 'v,
+	{
+		match ptr.is_null() {
+			true => Self {
+				ptr: ptr::null_mut(),
+				vtable: ptr::null(),
+			},
+			false => Self::into_dyn_unchecked(ptr),
+		}
+	}
+
+	/// Create a DynData representing the given pointer, without
+	/// checking if it is null.
+	#[inline(always)]
+	pub fn into_dyn_unchecked<'v, T>(ptr: *mut T) -> Self
+	where
+		T: DynTable<'v, V::VTable>,
+		V::VTable: 'v,
+	{
+		Self {
+			ptr: ptr as *mut c_void,
+			vtable: T::STATIC_VTABLE,
+		}
+	}
+}
+
+// std::mem::size_of_val will return 0
+struct DynRefInternalRepr<V: VTableRepr + ?Sized>(PhantomData<V>);
+
+/// FFI safe `dyn Trait`.
+///
+/// # Safety
+/// Attempting to dereference a `*Dyn<V>` is undefined behavior
+///
+/// `Dyn<V>` does not have a dynamically known size, and
+/// [`std::mem::size_of_val`] will always return 0 for
+/// a (`*`/`&`)`Dyn<V>`
+#[repr(transparent)]
+pub struct Dyn<V: VTableRepr + ?Sized>([DynRefInternalRepr<V>]);
+
+// sanity check
+const _: [(); 0 - !{
+	struct Assert;
+	unsafe impl VTable for Assert {
+		type Bounds = ();
+	}
+	impl VTableRepr for Assert {
+		type VTable = Self;
+	}
+
+	mem::size_of::<DynData<Assert>>() == mem::size_of::<&Dyn<Assert>>()
+		&& mem::align_of::<DynData<Assert>>() == mem::align_of::<&Dyn<Assert>>()
+} as usize] = [];
+
+impl<V: VTableRepr + ?Sized> Dyn<V> {
+	/// Convert raw dynptr data to a fat dynptr.
+	///
+	/// # Safety
+	/// Turning a [`DynData`] with either a null data or vtable pointer
+	/// into a `*Dyn` may produce illogical results in null checks,
+	/// and possibly `NonNull` optimization. Ensure both fields are either
+	/// null or non-null.
+	///
+	/// For a dynptr to be safe to use, it must have a valid, non-null data
+	/// pointer and a pointer to a compatible VTable. Attempting to use a
+	/// dynptr that does not meet the listed conditions is undefined behavior.
+	#[inline(always)]
+	pub unsafe fn from_raw(ptr: DynData<V>) -> *mut Self {
+		unsafe { mem::transmute(ptr) }
+	}
+
+	#[inline(always)]
+	pub fn as_raw(ptr: *const Self) -> DynData<V> {
+		unsafe { mem::transmute(ptr) }
+	}
+
+	#[inline(always)]
+	pub fn erase_ref<'a, 'v, T>(ptr: &'a T) -> &'a Self
+	where
+		T: DynTable<'v, V::VTable>,
+		V::VTable: 'v,
+	{
+		unsafe { &*Self::from_raw(DynData::into_dyn::<T>(ptr as *const T as *mut T)) }
+	}
+
+	#[inline(always)]
+	pub fn erase_ref_mut<'a, 'v, T>(ptr: &'a mut T) -> &'a mut Self
+	where
+		T: DynTable<'v, V::VTable>,
+		V::VTable: 'v,
+	{
+		unsafe { &mut *Self::from_raw(DynData::into_dyn::<T>(ptr as *mut T)) }
+	}
+
+	#[inline(always)]
+	pub fn erase_ptr<'v, T>(ptr: *mut T) -> *mut Self
+	where
+		T: DynTable<'v, V::VTable>,
+		V::VTable: 'v,
+	{
+		// validity check is performed by DynData::into_dyn
+		unsafe { Self::from_raw(DynData::into_dyn::<T>(ptr)) }
+	}
+
+	#[inline(always)]
+	pub unsafe fn erase_ptr_unchecked<'v, T>(ptr: *mut T) -> *mut Self
+	where
+		T: DynTable<'v, V::VTable>,
+		V::VTable: 'v,
+	{
+		Self::from_raw(DynData::into_dyn_unchecked::<T>(ptr))
+	}
+
+	#[inline(always)]
+	pub fn null() -> *const Self {
+		Self::null_mut()
+	}
+
+	#[inline(always)]
+	pub fn null_mut() -> *mut Self {
+		unsafe {
+			Self::from_raw(DynData {
+				ptr: ptr::null_mut(),
+				vtable: ptr::null(),
+			})
+		}
+	}
+}
+
+unsafe impl<V: VTableRepr + ?Sized> AsDyn for Dyn<V> {
+	type Repr = V;
+
+	#[inline(always)]
+	fn dyn_ptr(&self) -> *mut c_void {
+		Dyn::as_raw(self).ptr
+	}
+
+	#[inline(always)]
+	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable {
+		Dyn::as_raw(self).vtable
+	}
+
+	fn dyn_dealloc(self)
+	where
+		Self: Sized,
+	{
+		unreachable!("an owned Dyn<T> is not possible to create");
+	}
 }
 
 /// Wrapper around a raw DynPtr for implementing abstractions.
 ///
 /// Implements Send and Sync when they are bounds of the target trait.
 #[repr(transparent)]
-pub struct DynUnchecked<V: VTableRepr + ?Sized> {
-	pub ptr: DynPtr<V>,
+pub struct DynUnique<V: VTableRepr + ?Sized> {
+	pub ptr: *mut Dyn<V>,
+	pub _marker: PhantomData<V>,
 }
 
-impl<V: VTableRepr + ?Sized> Copy for DynUnchecked<V> {}
-impl<V: VTableRepr + ?Sized> Clone for DynUnchecked<V> {
-	fn clone(&self) -> Self { *self }
+impl<V: VTableRepr + ?Sized> DynUnique<V> {
+	#[inline(always)]
+	pub fn new(ptr: *mut Dyn<V>) -> Self {
+		Self {
+			ptr,
+			_marker: PhantomData,
+		}
+	}
 }
 
-unsafe impl<V: VTableRepr + ?Sized> Send for DynUnchecked<V> where <V::VTable as VTable>::Bounds: Send {}
-unsafe impl<V: VTableRepr + ?Sized> Sync for DynUnchecked<V> where <V::VTable as VTable>::Bounds: Sync {}
+unsafe impl<V: VTableRepr + ?Sized> Send for DynUnique<V> where <V::VTable as VTable>::Bounds: Send {}
+unsafe impl<V: VTableRepr + ?Sized> Sync for DynUnique<V> where <V::VTable as VTable>::Bounds: Sync {}
 
 /// This trait implements the trait described by its `Repr`.
 ///
@@ -259,128 +425,9 @@ pub unsafe trait AsDyn {
 	/// deallocate the contained pointer. Such cases include
 	/// deallocating a [`Dyn`], which cannot be obtained except
 	/// behind a reference.
-	fn dyn_dealloc(self);
-}
-
-/// Reference to a dyntable Trait, equivalent to `&dyn Trait`.
-#[repr(transparent)]
-pub struct DynRef<'a, V: VTableRepr + ?Sized> {
-	ptr: DynPtr<V>,
-	_lt: PhantomData<&'a ()>,
-}
-
-impl<V: VTableRepr + ?Sized> Copy for DynRef<'_, V> {}
-impl<V: VTableRepr + ?Sized> Clone for DynRef<'_, V> {
-	#[inline(always)]
-	fn clone(&self) -> Self { *self }
-}
-
-unsafe impl<V: VTableRepr + ?Sized> Send for DynRef<'_, V> where <V::VTable as VTable>::Bounds: Sync {}
-
-impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
-	#[inline(always)]
-	pub unsafe fn from_raw(ptr: DynPtr<V>) -> Self {
-		Self {
-			ptr,
-			_lt: PhantomData,
-		}
-	}
-
-	#[inline(always)]
-	pub fn borrow(&self) -> DynRef<'a, V> {
-		*self
-	}
-}
-
-/// Reference to a dyntable Trait, equivalent to `&mut dyn Trait`.
-#[repr(transparent)]
-pub struct DynRefMut<'a, V: VTableRepr + ?Sized> {
-	ptr: DynPtr<V>,
-	_lt: PhantomData<&'a mut ()>,
-}
-
-unsafe impl<V: VTableRepr + ?Sized> Send for DynRefMut<'_, V> where <V::VTable as VTable>::Bounds: Sync {}
-
-impl<'a, V: VTableRepr + ?Sized> Deref for DynRef<'a, V> {
-	type Target = DynRefCallProxy<'a, V>;
-
-	#[inline(always)]
-	fn deref(&self) -> &Self::Target {
-		DynRefCallProxy::from_raw(&self.ptr)
-	}
-}
-
-impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
-	#[inline(always)]
-	pub unsafe fn from_raw(ptr: DynPtr<V>) -> Self {
-		Self {
-			ptr,
-			_lt: PhantomData,
-		}
-	}
-
-	#[inline(always)]
-	pub fn borrow(&self) -> DynRef<V> {
-		unsafe { DynRef::from_raw(self.ptr) }
-	}
-
-	#[inline(always)]
-	pub fn borrow_mut(&mut self) -> DynRefMut<V> {
-		unsafe { DynRefMut::from_raw(self.ptr) }
-	}
-}
-
-impl<'a, V: VTableRepr + ?Sized> Deref for DynRefMut<'a, V> {
-	type Target = DynRefCallProxy<'a, V>;
-
-	#[inline(always)]
-	fn deref(&self) -> &Self::Target {
-		DynRefCallProxy::from_raw(&self.ptr)
-	}
-}
-
-impl<V: VTableRepr + ?Sized> DerefMut for DynRefMut<'_, V> {
-	#[inline(always)]
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		DynRefCallProxy::from_raw_mut(&mut self.ptr)
-	}
-}
-
-#[doc(hidden)]
-#[repr(transparent)]
-pub struct DynRefCallProxy<'a, V: VTableRepr + ?Sized> {
-	ptr: DynPtr<V>,
-	_lt: PhantomData<&'a ()>,
-}
-
-impl<V: VTableRepr + ?Sized> DynRefCallProxy<'_, V> {
-	#[inline(always)]
-	fn from_raw(ptr: &DynPtr<V>) -> &Self {
-		unsafe { mem::transmute(ptr) }
-	}
-
-	#[inline(always)]
-	fn from_raw_mut(ptr: &mut DynPtr<V>) -> &mut Self {
-		unsafe { mem::transmute(ptr) }
-	}
-}
-
-unsafe impl<V: VTableRepr + ?Sized> AsDyn for DynRefCallProxy<'_, V> {
-	type Repr = V;
-
-	#[inline(always)]
-	fn dyn_ptr(&self) -> *mut c_void {
-		self.ptr.ptr
-	}
-
-	#[inline(always)]
-	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable {
-		self.ptr.vtable
-	}
-
-	fn dyn_dealloc(self) {
-		unreachable!("references cannot be deallocated");
-	}
+	fn dyn_dealloc(self)
+	where
+		Self: Sized;
 }
 
 /// Stand-in memory allocation types for the ones provided by
@@ -527,7 +574,7 @@ where
 	V: VTableRepr + ?Sized,
 	V::VTable: DropTable,
 {
-	ptr: DynUnchecked<V>,
+	ptr: DynUnique<V>,
 	alloc: A,
 	layout: A::DeallocLayout,
 }
@@ -541,18 +588,18 @@ where
 
 	#[inline(always)]
 	fn dyn_ptr(&self) -> *mut c_void {
-		self.ptr.ptr.ptr
+		Dyn::as_raw(self.ptr.ptr).ptr
 	}
 
 	#[inline(always)]
 	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable {
-		self.ptr.ptr.vtable
+		Dyn::as_raw(self.ptr.ptr).vtable
 	}
 
 	fn dyn_dealloc(self) {
 		unsafe {
 			self.alloc.deallocate(
-				NonNull::new_unchecked(self.ptr.ptr.ptr as *mut _ as *mut u8),
+				NonNull::new_unchecked(Dyn::as_raw(self.ptr.ptr).ptr as *mut _ as *mut u8),
 				self.layout.clone(),
 			);
 		}
@@ -637,12 +684,7 @@ where
 		V::VTable: 'v,
 	{
 		Self {
-			ptr: DynUnchecked {
-				ptr: DynPtr {
-					ptr: ptr as *mut c_void,
-					vtable: T::STATIC_VTABLE,
-				},
-			},
+			ptr: DynUnique::new(Dyn::erase_ptr(ptr)),
 			alloc,
 			layout: A::DeallocLayout::new::<T>(),
 		}
@@ -669,31 +711,32 @@ where
 		V::VTable: 'v,
 	{
 		Self {
-			ptr: DynUnchecked {
-				ptr: DynPtr {
-					ptr,
-					vtable,
-				},
-			},
+			ptr: DynUnique::new(Dyn::from_raw(DynData { ptr, vtable })),
 			alloc,
 			layout,
 		}
 	}
+}
 
-	/// Immutably borrows the wrapped value.
-	pub fn borrow(&self) -> DynRef<V> {
-		DynRef {
-			ptr: self.ptr.ptr,
-			_lt: PhantomData,
-		}
+impl<'v, V> Deref for DynBox<V>
+where
+	V: VTableRepr + ?Sized,
+	V::VTable: 'v + DropTable,
+{
+	type Target = Dyn<V>;
+
+	fn deref(&self) -> &Self::Target {
+		unsafe { &*self.ptr.ptr }
 	}
+}
 
-	/// Mutably borrows the wrapped value.
-	pub fn borrow_mut(&mut self) -> DynRefMut<V> {
-		DynRefMut {
-			ptr: self.ptr.ptr,
-			_lt: PhantomData,
-		}
+impl<'v, V> DerefMut for DynBox<V>
+where
+	V: VTableRepr + ?Sized,
+	V::VTable: 'v + DropTable,
+{
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		unsafe { &mut *self.ptr.ptr }
 	}
 }
 
@@ -708,12 +751,7 @@ where
 	fn from(value: Box<T, A>) -> Self {
 		let (ptr, alloc) = Box::into_raw_with_allocator(value);
 		Self {
-			ptr: DynUnchecked {
-				ptr: DynPtr {
-					ptr: ptr as *mut c_void,
-					vtable: T::STATIC_VTABLE,
-				},
-			},
+			ptr: DynUnique::new(Dyn::erase_ptr_mut(ptr)),
 			alloc,
 			layout: Layout::new::<T>().into(),
 		}
@@ -729,13 +767,7 @@ where
 {
 	fn from(value: Box<T>) -> Self {
 		Self {
-			ptr: DynUnchecked {
-				ptr: DynPtr {
-					// box uses the same global allocator
-					ptr: Box::into_raw(value) as *mut c_void,
-					vtable: T::STATIC_VTABLE,
-				},
-			},
+			ptr: DynUnique::new(Dyn::erase_ptr(Box::into_raw(value))),
 			alloc: GlobalAllocator,
 			layout: Layout::new::<T>().into(),
 		}
@@ -750,11 +782,12 @@ where
 {
 	fn drop(&mut self) {
 		unsafe {
-			(*self.ptr.ptr.vtable).virtual_drop(self.ptr.ptr.ptr);
+			let ptr = Dyn::as_raw(self.ptr.ptr);
+			(*ptr.vtable).virtual_drop(ptr.ptr);
 
 			if !self.layout.is_zero_sized() {
 				self.alloc.deallocate(
-					NonNull::new_unchecked(self.ptr.ptr.ptr as *mut u8),
+					NonNull::new_unchecked(ptr.ptr as *mut u8),
 					self.layout.clone(),
 				);
 			}
