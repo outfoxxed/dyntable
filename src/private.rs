@@ -1,26 +1,26 @@
 use std::{ffi::c_void, marker::PhantomData, mem};
 
-use crate::{DropTable, DynTable, VTable};
+use crate::{DropTable, DynTrait, VTable};
 
 /// Trait that implies nothing, used for `VTable::Bounds`
 /// when no bounds are required
 pub trait NoBounds {}
 
 /// Struct used to evade the orphan rule, which prevents directly
-/// implementing DynTable for `T: DynTrait`
+/// implementing DynTrait for `T: DynTrait`
 pub struct DynImplTarget<T, V: VTable>(PhantomData<(T, V)>);
 
 /// Copy of DynTrait used to prevent a recursive impl
 #[allow(clippy::missing_safety_doc)]
-pub unsafe trait DynTable2<'v, V: 'v + VTable> {
+pub unsafe trait DynTraitProxy<'v, V: 'v + VTable> {
 	const VTABLE: V;
 	const STATIC_VTABLE: &'v V;
 }
 
-// would cause a recursive impl if `DynTable` was used instead of `DynTable2`
-unsafe impl<'v, T, V: 'v + VTable> DynTable<'v, V> for T
+// would cause a recursive impl if `DynTrait` was used instead of `DynTraitProxy`
+unsafe impl<'v, T, V: 'v + VTable> DynTrait<'v, V> for T
 where
-	DynImplTarget<T, V>: DynTable2<'v, V>,
+	DynImplTarget<T, V>: DynTraitProxy<'v, V>,
 {
 	const STATIC_VTABLE: &'v V = DynImplTarget::<T, V>::STATIC_VTABLE;
 	const VTABLE: V = DynImplTarget::<T, V>::VTABLE;
@@ -93,9 +93,9 @@ unsafe impl<T: DropTable> DropTable for SendSyncVTable<T> {
 	}
 }
 
-unsafe impl<'v, T: Send, V: 'v + VTable> DynTable<'v, SendVTable<V>> for T
+unsafe impl<'v, T: Send, V: 'v + VTable> DynTrait<'v, SendVTable<V>> for T
 where
-	DynImplTarget<T, V>: DynTable2<'v, V>,
+	DynImplTarget<T, V>: DynTraitProxy<'v, V>,
 {
 	// SAFETY: SendVTable is #[repr(transparent)]
 	const STATIC_VTABLE: &'v SendVTable<V> =
@@ -103,9 +103,9 @@ where
 	const VTABLE: SendVTable<V> = SendVTable(DynImplTarget::<T, V>::VTABLE);
 }
 
-unsafe impl<'v, T: Sync, V: 'v + VTable> DynTable<'v, SyncVTable<V>> for T
+unsafe impl<'v, T: Sync, V: 'v + VTable> DynTrait<'v, SyncVTable<V>> for T
 where
-	DynImplTarget<T, V>: DynTable2<'v, V>,
+	DynImplTarget<T, V>: DynTraitProxy<'v, V>,
 {
 	// SAFETY: SyncVTable is #[repr(transparent)]
 	const STATIC_VTABLE: &'v SyncVTable<V> =
@@ -113,9 +113,9 @@ where
 	const VTABLE: SyncVTable<V> = SyncVTable(DynImplTarget::<T, V>::VTABLE);
 }
 
-unsafe impl<'v, T: Send + Sync, V: 'v + VTable> DynTable<'v, SendSyncVTable<V>> for T
+unsafe impl<'v, T: Send + Sync, V: 'v + VTable> DynTrait<'v, SendSyncVTable<V>> for T
 where
-	DynImplTarget<T, V>: DynTable2<'v, V>,
+	DynImplTarget<T, V>: DynTraitProxy<'v, V>,
 {
 	// SAFETY: SendSyncVTable is #[repr(transparent)]
 	const STATIC_VTABLE: &'v SendSyncVTable<V> =

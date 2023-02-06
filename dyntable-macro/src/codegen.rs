@@ -35,7 +35,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let vis = &dyntrait.vis;
 	let ident = &dyntrait.dyntrait.ident;
 	let trait_attrs = &dyntrait.dyntrait.attrs;
-	let proxy_trait = format_ident!("__DynTable_{}", dyntrait.dyntrait.ident);
+	let proxy_trait = format_ident!("__DynTrait_{}", dyntrait.dyntrait.ident);
 	let (impl_generics, ty_generics, where_clause) = dyntrait.generics.split_for_impl();
 
 	let impl_generic_entries = dyntrait
@@ -263,7 +263,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			subtable: Subtable { path, .. },
 		}) => {
 			quote::quote! {
-				#ident: <__DynTarget as ::dyntable::DynTable<
+				#ident: <__DynTarget as ::dyntable::DynTrait<
 					<(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable,
 				>>::VTABLE
 			}
@@ -487,15 +487,15 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		unsafe impl<
 			'__dyn_vtable,
 			#(#impl_vt_generic_entries,)*
-			__DynTable,
-		> ::dyntable::__private::DynTable2<'__dyn_vtable, #vtable_ident #ty_generics>
-		for ::dyntable::__private::DynImplTarget<__DynTable, #vtable_ident #ty_generics>
+			__DynTrait,
+		> ::dyntable::__private::DynTraitProxy<'__dyn_vtable, #vtable_ident #ty_generics>
+		for ::dyntable::__private::DynImplTarget<__DynTrait, #vtable_ident #ty_generics>
 		where
 			#(#where_predicates,)*
-			__DynTable: #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>,
+			__DynTrait: #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>,
 		{
-			const VTABLE: #vtable_ident #ty_generics = __DynTable::VTABLE;
-			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics = __DynTable::STATIC_VTABLE;
+			const VTABLE: #vtable_ident #ty_generics = __DynTrait::VTABLE;
+			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics = __DynTrait::STATIC_VTABLE;
 		}
 
 		unsafe impl<

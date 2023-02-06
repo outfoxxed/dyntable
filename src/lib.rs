@@ -105,7 +105,7 @@ pub mod __private;
 ///
 /// # Notes
 /// This trait is implemented by the [`dyntable`] macro.
-pub unsafe trait DynTable<'v, V: 'v + VTable> {
+pub unsafe trait DynTrait<'v, V: 'v + VTable> {
 	/// The underlying VTable for the type this trait is applied to.
 	const VTABLE: V;
 	/// An instance of the `VTABLE` constant.
@@ -574,7 +574,7 @@ where
 	/// Panics on allocation failure
 	pub fn new<'v, T>(data: T) -> DynBox<V, GlobalAllocator>
 	where
-		T: DynTable<'v, V::VTable>,
+		T: DynTrait<'v, V::VTable>,
 		V::VTable: 'v,
 	{
 		DynBox::new_in(data, GlobalAllocator)
@@ -588,7 +588,7 @@ where
 	pub fn new_in<'v, T>(data: T, alloc: A) -> Self
 	where
 		A: Allocator,
-		T: DynTable<'v, V::VTable>,
+		T: DynTrait<'v, V::VTable>,
 		V::VTable: 'v,
 	{
 		match Self::try_new_in(data, alloc) {
@@ -603,7 +603,7 @@ where
 	pub fn try_new_in<'v, T>(data: T, alloc: A) -> Result<Self, AllocError>
 	where
 		A: Allocator,
-		T: DynTable<'v, V::VTable>,
+		T: DynTrait<'v, V::VTable>,
 		V::VTable: 'v,
 	{
 		let layout = A::AllocLayout::new::<MaybeUninit<T>>();
@@ -633,7 +633,7 @@ where
 	/// by the given allocator.
 	pub unsafe fn from_raw_in<'v, T>(ptr: *mut T, alloc: A) -> Self
 	where
-		T: DynTable<'v, V::VTable>,
+		T: DynTrait<'v, V::VTable>,
 		V::VTable: 'v,
 	{
 		Self {
@@ -701,7 +701,7 @@ where
 impl<'v, T, V, A> From<Box<T, A>> for DynBox<V, A>
 where
 	A: std::alloc::Allocator,
-	T: DynTable<'v, V::VTable>,
+	T: DynTrait<'v, V::VTable>,
 	V: VTableRepr + ?Sized,
 	V::VTable: 'v + DropTable,
 {
@@ -723,7 +723,7 @@ where
 #[cfg(not(feature = "allocator_api"))]
 impl<'v, T, V> From<Box<T>> for DynBox<V, GlobalAllocator>
 where
-	T: DynTable<'v, V::VTable>,
+	T: DynTrait<'v, V::VTable>,
 	V: VTableRepr + ?Sized,
 	V::VTable: 'v + DropTable,
 {
