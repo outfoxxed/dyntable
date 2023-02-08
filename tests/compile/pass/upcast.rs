@@ -18,9 +18,9 @@ where
 {}
 
 fn _upcast_direct(dynref: DynRef<dyn Subtrait>) {
-	let _: DynRef<dyn Supertrait> = dynref.upcast();
+	let _: DynRef<dyn Supertrait> = DynRef::upcast(dynref);
 }
 
 fn _upcast_indirect(dynref: DynRef<dyn DoubleSubtrait>) {
-	let _: DynRef<dyn Supertrait> = dynref.upcast();
+	let _: DynRef<dyn Supertrait> = DynRef::upcast(dynref);
 }

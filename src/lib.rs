@@ -213,16 +213,16 @@ impl<V: VTableRepr + ?Sized> Clone for DynPtr<V> {
 impl<V: VTableRepr + ?Sized> DynPtr<V> {
 	/// Upcast the given dynptr to a bounded dyntrait ptr.
 	#[inline(always)]
-	pub fn upcast<U>(self) -> DynPtr<U>
+	pub fn upcast<U>(ptr: Self) -> DynPtr<U>
 	where
 		U: VTableRepr + ?Sized,
 		V::VTable: SubTable<U::VTable>,
 	{
 		DynPtr {
-			ptr: self.ptr,
+			ptr: ptr.ptr,
 			/// SAFETY: the subtable is a slice into the existing vtable
 			/// pointer, and therefore has the same lifetime.
-			vtable: unsafe { (*self.vtable).subtable() }
+			vtable: unsafe { (*ptr.vtable).subtable() }
 		}
 	}
 }
@@ -310,12 +310,12 @@ impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
 
 	/// Upcast the given dynref to a bounded dyntrait ptr.
 	#[inline(always)]
-	pub fn upcast<U>(self) -> DynRef<'a, U>
+	pub fn upcast<U>(r: Self) -> DynRef<'a, U>
 	where
 		U: VTableRepr + ?Sized,
 		V::VTable: SubTable<U::VTable>,
 	{
-		unsafe { DynRef::from_raw(self.ptr.upcast()) }
+		unsafe { DynRef::from_raw(DynPtr::upcast(r.ptr)) }
 	}
 }
 
@@ -358,12 +358,12 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 
 	/// Upcast the given mutable dynref to a bounded dyntrait ptr.
 	#[inline(always)]
-	pub fn upcast<U>(self) -> DynRefMut<'a, U>
+	pub fn upcast<U>(r: Self) -> DynRefMut<'a, U>
 	where
 		U: VTableRepr + ?Sized,
 		V::VTable: SubTable<U::VTable>,
 	{
-		unsafe { DynRefMut::from_raw(self.ptr.upcast()) }
+		unsafe { DynRefMut::from_raw(DynPtr::upcast(r.ptr)) }
 	}
 }
 

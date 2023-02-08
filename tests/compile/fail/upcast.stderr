@@ -1,5 +1,5 @@
 error[E0271]: type mismatch resolving `<dyn Trait2 as VTableRepr>::VTable == Trait1VTable`
-  --> tests/compile/fail/upcast.rs:12:37
+  --> tests/compile/fail/upcast.rs:12:30
    |
-12 |     let _: DynRef<dyn Trait2> = dynref.upcast();
-   |                                        ^^^^^^ expected struct `Trait2VTable`, found struct `Trait1VTable`
+12 |     let _: DynRef<dyn Trait2> = DynRef::upcast(dynref);
+   |                                 ^^^^^^^^^^^^^^ expected struct `Trait2VTable`, found struct `Trait1VTable`

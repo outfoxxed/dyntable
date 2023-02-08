@@ -9,5 +9,5 @@ trait Trait1 {}
 trait Trait2 {}
 
 fn _upcast_unrelated(dynref: DynRef<dyn Trait1>) {
-	let _: DynRef<dyn Trait2> = dynref.upcast();
+	let _: DynRef<dyn Trait2> = DynRef::upcast(dynref);
 }
