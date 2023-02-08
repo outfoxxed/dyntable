@@ -16,6 +16,7 @@ pub struct AttributeOptions {
 	pub repr: Abi,
 	pub relax_abi: bool,
 	pub drop: Option<Abi>,
+	pub embed_layout: bool,
 	pub vtable_name: Option<Ident>,
 }
 
@@ -25,6 +26,7 @@ impl Parse for AttributeOptions {
 			Repr(Abi),
 			RelaxAbi(bool),
 			Drop(Option<Abi>),
+			EmbedLayout(bool),
 			VTableName(Ident),
 		}
 
@@ -48,6 +50,7 @@ impl Parse for AttributeOptions {
 								_ => Some(Abi::Explicit(abi)),
 							}
 						}),
+						"embed_layout" => AttrOption::EmbedLayout(input.parse::<LitBool>()?.value),
 						"vtable" => AttrOption::VTableName(input.parse::<Ident>()?),
 						_ => {
 							return Err(syn::Error::new(
@@ -66,6 +69,7 @@ impl Parse for AttributeOptions {
 			repr: Option<Abi>,
 			relax_abi: Option<bool>,
 			drop: Option<Option<Abi>>,
+			embed_layout: Option<bool>,
 			vtable_name: Option<Ident>,
 		}
 
@@ -73,6 +77,7 @@ impl Parse for AttributeOptions {
 			repr: None,
 			relax_abi: None,
 			drop: None,
+			embed_layout: None,
 			vtable_name: None,
 		};
 
@@ -81,6 +86,7 @@ impl Parse for AttributeOptions {
 				AttrOption::Repr(x) => matches!(option_struct.repr.replace(x), Some(_)),
 				AttrOption::RelaxAbi(x) => matches!(option_struct.relax_abi.replace(x), Some(_)),
 				AttrOption::Drop(x) => matches!(option_struct.drop.replace(x), Some(_)),
+				AttrOption::EmbedLayout(x) => matches!(option_struct.embed_layout.replace(x), Some(_)),
 				AttrOption::VTableName(x) => {
 					matches!(option_struct.vtable_name.replace(x), Some(_))
 				},
@@ -95,6 +101,7 @@ impl Parse for AttributeOptions {
 			repr: option_struct.repr.unwrap_or(Abi::new_explicit_c()),
 			relax_abi: option_struct.relax_abi.unwrap_or(false),
 			drop: option_struct.drop.unwrap_or(Some(Abi::new_explicit_c())),
+			embed_layout: option_struct.embed_layout.unwrap_or(true),
 			vtable_name: option_struct.vtable_name,
 		})
 	}

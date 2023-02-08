@@ -1,0 +1,67 @@
+error[E0277]: the trait bound `NoDropVTable: AssociatedDrop` is not satisfied
+  --> tests/compile/fail/vtable_embed.rs:18:18
+   |
+18 | struct NoDropBox(DynBox<dyn NoDrop>);
+   |                  ^^^^^^^^^^^^^^^^^^ the trait `AssociatedDrop` is not implemented for `NoDropVTable`
+   |
+   = help: the following other types implement trait `AssociatedDrop`:
+             NoLayoutVTable
+             SendSyncVTable<T>
+             SendVTable<T>
+             SyncVTable<T>
+note: required by a bound in `DynBox`
+  --> src/lib.rs
+   |
+   |     V::VTable: AssociatedDrop + AssociatedLayout,
+   |                ^^^^^^^^^^^^^^ required by this bound in `DynBox`
+
+error[E0277]: the trait bound `NoLayoutVTable: AssociatedLayout` is not satisfied
+  --> tests/compile/fail/vtable_embed.rs:19:20
+   |
+19 | struct NoLayoutBox(DynBox<dyn NoLayout>);
+   |                    ^^^^^^^^^^^^^^^^^^^^ the trait `AssociatedLayout` is not implemented for `NoLayoutVTable`
+   |
+   = help: the following other types implement trait `AssociatedLayout`:
+             NoDropVTable
+             SendSyncVTable<T>
+             SendVTable<T>
+             SyncVTable<T>
+note: required by a bound in `DynBox`
+  --> src/lib.rs
+   |
+   |     V::VTable: AssociatedDrop + AssociatedLayout,
+   |                                 ^^^^^^^^^^^^^^^^ required by this bound in `DynBox`
+
+error[E0277]: the trait bound `NoMetaVTable: AssociatedDrop` is not satisfied
+  --> tests/compile/fail/vtable_embed.rs:20:18
+   |
+20 | struct NoMetaBox(DynBox<dyn NoMeta>);
+   |                  ^^^^^^^^^^^^^^^^^^ the trait `AssociatedDrop` is not implemented for `NoMetaVTable`
+   |
+   = help: the following other types implement trait `AssociatedDrop`:
+             NoLayoutVTable
+             SendSyncVTable<T>
+             SendVTable<T>
+             SyncVTable<T>
+note: required by a bound in `DynBox`
+  --> src/lib.rs
+   |
+   |     V::VTable: AssociatedDrop + AssociatedLayout,
+   |                ^^^^^^^^^^^^^^ required by this bound in `DynBox`
+
+error[E0277]: the trait bound `NoMetaVTable: AssociatedLayout` is not satisfied
+  --> tests/compile/fail/vtable_embed.rs:20:18
+   |
+20 | struct NoMetaBox(DynBox<dyn NoMeta>);
+   |                  ^^^^^^^^^^^^^^^^^^ the trait `AssociatedLayout` is not implemented for `NoMetaVTable`
+   |
+   = help: the following other types implement trait `AssociatedLayout`:
+             NoDropVTable
+             SendSyncVTable<T>
+             SendVTable<T>
+             SyncVTable<T>
+note: required by a bound in `DynBox`
+  --> src/lib.rs
+   |
+   |     V::VTable: AssociatedDrop + AssociatedLayout,
+   |                                 ^^^^^^^^^^^^^^^^ required by this bound in `DynBox`

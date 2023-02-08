@@ -133,10 +133,10 @@ pub unsafe trait VTable {
 
 /// Trait providing a drop function for a given opaque pointer.
 ///
-/// An implementation of this trait allows a type associated with
-/// this VTable to be used in an owning dyntable container such as
-/// a [`DynBox`] in addition to non-owning dyntable containers such
-/// as [`DynRef`] which can be used without `DropTable`.
+/// An implementation of this trait (when combined with [`AssociatedLayout`])
+/// allows a type associated with this VTable to be used in an owning
+/// dyn container such as a [`DynBox`] in addition to non-owning dyntable
+/// containers such as [`DynRef`] which can be used without `AssociatedDrop`.
 ///
 /// # Safety
 /// `vitrual_drop` must drop the given pointer as if it was a
@@ -147,7 +147,7 @@ pub unsafe trait VTable {
 ///
 /// This trait is only nessesary for the outermost vtable when
 /// VTables are contained within eachother.
-pub unsafe trait DropTable: VTable {
+pub unsafe trait AssociatedDrop: VTable {
 	/// Drop the given pointer as if it is a pointer to a
 	/// type associated with this VTable, without deallocating
 	/// the given pointer.
@@ -158,6 +158,23 @@ pub unsafe trait DropTable: VTable {
 	/// the instance pointed to by this pointer must be considered
 	/// to be dropped.
 	unsafe fn virtual_drop(&self, instance: *mut c_void);
+}
+
+/// Trait providing a function to look up the layout of the associated type.
+///
+/// An implementation of this trait (when combined with [`AssociatedDrop`])
+/// allows a type associated with this VTable to be used in an owning
+/// dyn container such as a [`DynBox`] in addition to non-owning dyntable
+/// containers such as [`DynRef`] which can be used without `AssociatedLayout`.
+///
+/// # Safety
+/// `vitrtual_layout` must return the correct layout for the associated type.
+///
+/// # Notes
+/// This trait is implemented by the [`dyntable`] macro.
+pub unsafe trait AssociatedLayout: VTable {
+	/// Get the layout matching the associated type.
+	fn virtual_layout(&self) -> MemoryLayout;
 }
 
 /// This trait describes this VTable as containing another
@@ -445,8 +462,6 @@ pub mod alloc {
 	/// (usually the type implementing `Deallocator` will also
 	/// implement `Allocator`)
 	pub trait Deallocator {
-		type DeallocLayout: MemoryLayout;
-
 		/// Deallocate a compatible block of memory, given a pointer
 		/// to it and associated information about it (usually the
 		/// memory layout or `()`)
@@ -454,47 +469,44 @@ pub mod alloc {
 		/// # Safety
 		/// The given pointer must be allocated by this allocator,
 		/// and representable by the given layout.
-		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Self::DeallocLayout);
+		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout);
 	}
 
 	/// An implementation of `Allocator` can allocate a block of
 	/// memory given its layout.
 	pub trait Allocator: Deallocator {
-		type AllocLayout: MemoryLayout;
-
 		/// Allocate a block of memory, given it's layout
 		///
 		/// # Errors
 		/// An [`AllocError`] is returned if the allocator cannot
 		/// allocate the specified memory block for any reason.
-		fn allocate(&self, layout: Self::AllocLayout) -> Result<NonNull<[u8]>, AllocError>;
+		fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError>;
 	}
 
 	/// Layout of a block of memory
 	///
 	/// Stand-in for [`core::alloc::Layout`]
-	pub trait MemoryLayout: Clone {
-		/// Construct a new memory layout capable of representing `T`
-		fn new<T>() -> Self;
-
-		/// Indicates if a memory layout is zero sized, in which case
-		/// no memory should actually be allocated
-		fn is_zero_sized(&self) -> bool;
-	}
-
-	#[derive(Clone)]
+	#[derive(Copy, Clone)]
 	#[repr(C)]
-	pub struct RustLayout {
+	pub struct MemoryLayout {
 		size: usize,
 		align: usize,
 	}
 
-	impl MemoryLayout for RustLayout {
-		fn new<T>() -> Self {
-			Layout::new::<T>().into()
+	impl MemoryLayout {
+		/// Construct a new memory layout capable of representing `T`
+		pub const fn new<T>() -> Self {
+			let layout = Layout::new::<T>();
+
+			Self {
+				size: layout.size(),
+				align: layout.align(),
+			}
 		}
 
-		fn is_zero_sized(&self) -> bool {
+		/// Indicates if a memory layout is zero sized, in which case
+		/// no memory should actually be allocated
+		pub const fn is_zero_sized(&self) -> bool {
 			self.size == 0
 		}
 	}
@@ -506,7 +518,7 @@ pub mod alloc {
 	/// Stand-in for [`std::alloc::AllocError`] (unstable)
 	pub struct AllocError;
 
-	impl From<Layout> for RustLayout {
+	impl From<Layout> for MemoryLayout {
 		fn from(value: Layout) -> Self {
 			Self {
 				size: value.size(),
@@ -515,8 +527,8 @@ pub mod alloc {
 		}
 	}
 
-	impl From<RustLayout> for Layout {
-		fn from(value: RustLayout) -> Self {
+	impl From<MemoryLayout> for Layout {
+		fn from(value: MemoryLayout) -> Self {
 			unsafe { Layout::from_size_align_unchecked(value.size, value.align) }
 		}
 	}
@@ -529,27 +541,21 @@ pub mod alloc {
 
 	#[cfg(feature = "allocator_api")]
 	impl<T: std::alloc::Allocator> Allocator for T {
-		type AllocLayout = RustLayout;
-
-		fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
+		fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
 			<T as std::alloc::Allocator>::allocate(self, layout.into()).map_err(|_| AllocError)
 		}
 	}
 
 	#[cfg(feature = "allocator_api")]
 	impl<T: std::alloc::Allocator> Deallocator for T {
-		type DeallocLayout = RustLayout;
-
-		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: RustLayout) {
+		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {
 			<T as std::alloc::Allocator>::deallocate(self, ptr, layout.into());
 		}
 	}
 
 	#[cfg(not(feature = "allocator_api"))]
 	impl Allocator for GlobalAllocator {
-		type AllocLayout = RustLayout;
-
-		fn allocate(&self, layout: RustLayout) -> Result<NonNull<[u8]>, AllocError> {
+		fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
 			unsafe {
 				Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
 					std::alloc::alloc(layout.into()),
@@ -561,9 +567,7 @@ pub mod alloc {
 
 	#[cfg(not(feature = "allocator_api"))]
 	impl Deallocator for GlobalAllocator {
-		type DeallocLayout = RustLayout;
-
-		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: RustLayout) {
+		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {
 			std::alloc::dealloc(ptr.as_ptr(), layout.into());
 		}
 	}
@@ -577,17 +581,16 @@ pub struct DynBox<V, A = GlobalAllocator>
 where
 	A: Deallocator,
 	V: VTableRepr + ?Sized,
-	V::VTable: DropTable,
+	V::VTable: AssociatedDrop + AssociatedLayout,
 {
-	ptr: DynUnchecked<V>,
 	alloc: A,
-	layout: A::DeallocLayout,
+	ptr: DynUnchecked<V>,
 }
 
 unsafe impl<V> AsDyn for DynBox<V>
 where
 	V: VTableRepr + ?Sized,
-	V::VTable: DropTable,
+	V::VTable: AssociatedDrop + AssociatedLayout,
 {
 	type Repr = V;
 
@@ -605,7 +608,7 @@ where
 		unsafe {
 			self.alloc.deallocate(
 				NonNull::new_unchecked(self.ptr.ptr.ptr as *mut _ as *mut u8),
-				self.layout.clone(),
+				(*self.ptr.ptr.vtable).virtual_layout(),
 			);
 		}
 
@@ -617,13 +620,14 @@ impl<V, A> DynBox<V, A>
 where
 	A: Deallocator,
 	V: VTableRepr + ?Sized,
-	V::VTable: DropTable,
+	V::VTable: AssociatedDrop + AssociatedLayout,
 {
 	/// Allocates memory using the global allocator and moves `data` into
 	/// the allocated memory, upcasting it to `V`.
 	///
 	/// # Panics
 	/// Panics on allocation failure
+	#[inline]
 	pub fn new<'v, T>(data: T) -> DynBox<V, GlobalAllocator>
 	where
 		T: DynTrait<'v, V::VTable>,
@@ -637,6 +641,7 @@ where
 	///
 	/// # Panics
 	/// Panics on allocation failure
+	#[inline]
 	pub fn new_in<'v, T>(data: T, alloc: A) -> Self
 	where
 		A: Allocator,
@@ -652,13 +657,14 @@ where
 	/// Allocates memory using the given allocator and moves `data` into
 	/// the allocated memory, upcasting it to `V`, and returning an error
 	/// if the allocation fails.
+	#[inline]
 	pub fn try_new_in<'v, T>(data: T, alloc: A) -> Result<Self, AllocError>
 	where
 		A: Allocator,
 		T: DynTrait<'v, V::VTable>,
 		V::VTable: 'v,
 	{
-		let layout = A::AllocLayout::new::<MaybeUninit<T>>();
+		let layout = MemoryLayout::new::<MaybeUninit<T>>();
 
 		unsafe {
 			let ptr = match layout.is_zero_sized() {
@@ -683,49 +689,42 @@ where
 	/// # Safety
 	/// The pointer `ptr` must be an owned pointer to a valid `T` allocated
 	/// by the given allocator.
+	#[inline(always)]
 	pub unsafe fn from_raw_in<'v, T>(ptr: *mut T, alloc: A) -> Self
 	where
 		T: DynTrait<'v, V::VTable>,
 		V::VTable: 'v,
 	{
-		Self {
-			ptr: DynUnchecked {
-				ptr: DynPtr {
-					ptr: ptr as *mut c_void,
-					vtable: T::STATIC_VTABLE,
-				},
+		Self::from_raw_dyn_in(
+			DynPtr {
+				ptr: ptr as *mut c_void,
+				vtable: T::STATIC_VTABLE,
 			},
-			alloc,
-			layout: A::DeallocLayout::new::<T>(),
-		}
+			alloc
+		)
 	}
 
-	/// Constructs a `DynBox` from a raw pointer in the given allocator
-	/// and its memory layout, upcasting the pointed value to `V`.
+	/// Constructs a `DynBox` from a raw dynptr in the given allocator.
 	///
-	/// After calling this function, the raw pointer is considered to be
+	/// After calling this function, the raw dynptr is considered to be
 	/// owned by the `DynBox` and will be cleaned up as such.
 	///
 	/// # Safety
-	/// The pointer `ptr` must be an owned pointer to memory allocated
-	/// by the allocator `alloc`. It's memory layout must match the one
-	/// provided by `layout`, and it must be compatible with the provided
-	/// vtable.
+	/// The pointer `ptr` must be an owned dynptr to memory allocated
+	/// by the allocator `alloc`.
+	#[inline(always)]
 	pub unsafe fn from_raw_dyn_in<'v>(
-		ptr: *mut c_void,
-		vtable: *const V::VTable,
+		ptr: DynPtr<V>,
 		alloc: A,
-		layout: A::DeallocLayout,
 	) -> Self
 	where
 		V::VTable: 'v,
 	{
 		Self {
 			ptr: DynUnchecked {
-				ptr: DynPtr { ptr, vtable },
+				ptr,
 			},
 			alloc,
-			layout,
 		}
 	}
 
@@ -768,20 +767,11 @@ where
 	A: std::alloc::Allocator,
 	T: DynTrait<'v, V::VTable>,
 	V: VTableRepr + ?Sized,
-	V::VTable: 'v + DropTable,
+	V::VTable: 'v + AssociatedDrop + AssociatedLayout,
 {
 	fn from(value: Box<T, A>) -> Self {
 		let (ptr, alloc) = Box::into_raw_with_allocator(value);
-		Self {
-			ptr: DynUnchecked {
-				ptr: DynPtr {
-					ptr: ptr as *mut c_void,
-					vtable: T::STATIC_VTABLE,
-				},
-			},
-			alloc,
-			layout: Layout::new::<T>().into(),
-		}
+		unsafe { Self::from_raw_in(ptr, alloc) }
 	}
 }
 
@@ -790,20 +780,10 @@ impl<'v, T, V> From<Box<T>> for DynBox<V, GlobalAllocator>
 where
 	T: DynTrait<'v, V::VTable>,
 	V: VTableRepr + ?Sized,
-	V::VTable: 'v + DropTable,
+	V::VTable: 'v + AssociatedDrop + AssociatedLayout,
 {
 	fn from(value: Box<T>) -> Self {
-		Self {
-			ptr: DynUnchecked {
-				ptr: DynPtr {
-					// box uses the same global allocator
-					ptr: Box::into_raw(value) as *mut c_void,
-					vtable: T::STATIC_VTABLE,
-				},
-			},
-			alloc: GlobalAllocator,
-			layout: Layout::new::<T>().into(),
-		}
+		unsafe { Self::from_raw_in(Box::into_raw(value), GlobalAllocator) }
 	}
 }
 
@@ -811,16 +791,18 @@ impl<V, A> Drop for DynBox<V, A>
 where
 	A: Deallocator,
 	V: VTableRepr + ?Sized,
-	V::VTable: DropTable,
+	V::VTable: AssociatedDrop + AssociatedLayout,
 {
 	fn drop(&mut self) {
 		unsafe {
-			(*self.ptr.ptr.vtable).virtual_drop(self.ptr.ptr.ptr);
+			let vtable = &*self.ptr.ptr.vtable;
+			vtable.virtual_drop(self.ptr.ptr.ptr);
 
-			if !self.layout.is_zero_sized() {
+			let layout = vtable.virtual_layout();
+			if !layout.is_zero_sized() {
 				self.alloc.deallocate(
 					NonNull::new_unchecked(self.ptr.ptr.ptr as *mut u8),
-					self.layout.clone(),
+					layout,
 				);
 			}
 		}
@@ -925,7 +907,12 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// - `drop` - Specify the existence and ABI of the VTable's `drop` function.
 ///            Valid options are `none`, to remove the `drop` function, or
 ///            any ABI permitted by the `extern "..."` specifier.
+///            Required to use this trait in owning dyn containers such as [`DynBox`]
 ///            Defaults to `C`.
+/// - `embed_layout` - Embed the layout (size + align) of the implementing type
+///                    in the vtable.
+///                    Required to use this trait in owning dyn containers such as [`DynBox`]
+///                    Defaults to `true`.
 /// - `vtable` - Specify the name of the generated VTable.
 ///              Defaults to `(your trait)VTable`.
 ///
@@ -941,8 +928,8 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// VTables are represented as a struct that is by default `#[repr(C)]` (see
 /// the `repr` option described in [Macro Options](#macro-options)).
 /// The VTable entries are laid out in the order they have been listed in,
-/// preceeded by a pointer to the type's `drop` function if the drop function
-/// has not been disabled as shown below:
+/// preceeded by a pointer to the type's `drop` function and the memory layout
+/// of the trait's implementing type (if not disabled) as shown below:
 ///
 /// ```
 /// # use dyntable::dyntable;
@@ -958,6 +945,7 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// #[repr(C)]
 /// struct MyTraitVTable {
 ///     drop: unsafe extern "C" fn(*mut core::ffi::c_void),
+///     layout: dyntable::alloc::MemoryLayout,
 ///     my_function: extern "C" fn(*const core::ffi::c_void),
 /// }
 /// ```

@@ -31,6 +31,7 @@ pub struct DynTraitInfo {
 	pub dyntrait: TraitInfo,
 	pub drop: Option<Abi>,
 	pub relax_abi: bool,
+	pub embed_layout: bool,
 	pub generics: Generics,
 	pub entries: Vec<VTableEntry>,
 }
@@ -328,6 +329,7 @@ impl DynTraitInfo {
 			},
 			drop: attr_options.drop,
 			relax_abi: attr_options.relax_abi,
+			embed_layout: attr_options.embed_layout,
 			generics: trait_body.generics,
 			entries: trait_body
 				.subtables

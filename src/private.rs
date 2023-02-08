@@ -1,6 +1,6 @@
 use std::{ffi::c_void, marker::PhantomData, mem};
 
-use crate::{DropTable, DynTrait, VTable};
+use crate::{AssociatedDrop, DynTrait, VTable, AssociatedLayout, alloc::MemoryLayout};
 
 /// Trait that implies nothing, used for `VTable::Bounds`
 /// when no bounds are required
@@ -72,24 +72,45 @@ unsafe impl<T: VTable> VTable for SendSyncVTable<T> {
 	type Bounds = SendSyncWrapper<T::Bounds>;
 }
 
-unsafe impl<T: DropTable> DropTable for SendVTable<T> {
+unsafe impl<T: AssociatedDrop> AssociatedDrop for SendVTable<T> {
 	#[inline(always)]
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
 	}
 }
 
-unsafe impl<T: DropTable> DropTable for SyncVTable<T> {
+unsafe impl<T: AssociatedDrop> AssociatedDrop for SyncVTable<T> {
 	#[inline(always)]
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
 	}
 }
 
-unsafe impl<T: DropTable> DropTable for SendSyncVTable<T> {
+unsafe impl<T: AssociatedDrop> AssociatedDrop for SendSyncVTable<T> {
 	#[inline(always)]
 	unsafe fn virtual_drop(&self, instance: *mut c_void) {
 		self.0.virtual_drop(instance);
+	}
+}
+
+unsafe impl<T: AssociatedLayout> AssociatedLayout for SendVTable<T> {
+	#[inline(always)]
+	fn virtual_layout(&self) -> MemoryLayout {
+		self.0.virtual_layout()
+	}
+}
+
+unsafe impl<T: AssociatedLayout> AssociatedLayout for SyncVTable<T> {
+	#[inline(always)]
+	fn virtual_layout(&self) -> MemoryLayout {
+		self.0.virtual_layout()
+	}
+}
+
+unsafe impl<T: AssociatedLayout> AssociatedLayout for SendSyncVTable<T> {
+	#[inline(always)]
+	fn virtual_layout(&self) -> MemoryLayout {
+		self.0.virtual_layout()
 	}
 }
 

@@ -207,6 +207,11 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		}
 	};
 
+	let embed_layout = match dyntrait.embed_layout {
+		true => Some(TokenStream::new()),
+		false => None,
+	}.into_iter().collect::<Vec<_>>();
+
 	let subtable_impls = dyntrait.entries.iter().filter_map(|entry| match entry {
 		VTableEntry::Method(_) => None,
 		VTableEntry::Subtable(SubtableEntry {
@@ -443,6 +448,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		#vis struct #vtable_ident #ty_generics
 		#where_clause {
 			#(#vis __drop: unsafe #drop_abi fn(*mut ::core::ffi::c_void),)*
+			#(#vis __layout: ::dyntable::alloc::MemoryLayout, #embed_layout)* // embed_layout is a marker
 			#(#vtable_entries,)*
 			#vis __generics: ::core::marker::PhantomData<#vtable_phantom_generics>
 		}
@@ -512,6 +518,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				&<Self as #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>>::VTABLE;
 			const VTABLE: #vtable_ident #ty_generics = #vtable_ident {
 				#(__drop: #drop_fn_ident::<__DynTarget>,)*
+				#(__layout: ::dyntable::alloc::MemoryLayout::new::<__DynTarget>(), #embed_layout)* // embed_layout is a marker
 				#(#impl_vtable_entries,)*
 				__generics: ::core::marker::PhantomData,
 			};
@@ -525,12 +532,23 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				::core::ptr::drop_in_place(ptr as *mut T);
 			}
 
-			unsafe impl #impl_generics ::dyntable::DropTable
+			unsafe impl #impl_generics ::dyntable::AssociatedDrop
 			for #vtable_ident #ty_generics
 			#where_clause {
 				#[inline(always)]
 				unsafe fn virtual_drop(&self, instance: *mut ::core::ffi::c_void) {
 					(self.__drop)(instance)
+				}
+			}
+		)*
+
+		#(#embed_layout // marker
+			unsafe impl #impl_generics ::dyntable::AssociatedLayout
+			for #vtable_ident #ty_generics
+			#where_clause {
+				#[inline(always)]
+				fn virtual_layout(&self) -> ::dyntable::alloc::MemoryLayout {
+					self.__layout
 				}
 			}
 		)*
