@@ -207,7 +207,9 @@ pub struct DynPtr<V: VTableRepr + ?Sized> {
 
 impl<V: VTableRepr + ?Sized> Copy for DynPtr<V> {}
 impl<V: VTableRepr + ?Sized> Clone for DynPtr<V> {
-	fn clone(&self) -> Self { *self }
+	fn clone(&self) -> Self {
+		*self
+	}
 }
 
 impl<V: VTableRepr + ?Sized> DynPtr<V> {
@@ -222,7 +224,7 @@ impl<V: VTableRepr + ?Sized> DynPtr<V> {
 			ptr: ptr.ptr,
 			/// SAFETY: the subtable is a slice into the existing vtable
 			/// pointer, and therefore has the same lifetime.
-			vtable: unsafe { (*ptr.vtable).subtable() }
+			vtable: unsafe { (*ptr.vtable).subtable() },
 		}
 	}
 }
@@ -237,11 +239,19 @@ pub struct DynUnchecked<V: VTableRepr + ?Sized> {
 
 impl<V: VTableRepr + ?Sized> Copy for DynUnchecked<V> {}
 impl<V: VTableRepr + ?Sized> Clone for DynUnchecked<V> {
-	fn clone(&self) -> Self { *self }
+	fn clone(&self) -> Self {
+		*self
+	}
 }
 
-unsafe impl<V: VTableRepr + ?Sized> Send for DynUnchecked<V> where <V::VTable as VTable>::Bounds: Send {}
-unsafe impl<V: VTableRepr + ?Sized> Sync for DynUnchecked<V> where <V::VTable as VTable>::Bounds: Sync {}
+unsafe impl<V: VTableRepr + ?Sized> Send for DynUnchecked<V> where
+	<V::VTable as VTable>::Bounds: Send
+{
+}
+unsafe impl<V: VTableRepr + ?Sized> Sync for DynUnchecked<V> where
+	<V::VTable as VTable>::Bounds: Sync
+{
+}
 
 /// This trait implements the trait described by its `Repr`.
 ///
@@ -289,7 +299,9 @@ pub struct DynRef<'a, V: VTableRepr + ?Sized> {
 impl<V: VTableRepr + ?Sized> Copy for DynRef<'_, V> {}
 impl<V: VTableRepr + ?Sized> Clone for DynRef<'_, V> {
 	#[inline(always)]
-	fn clone(&self) -> Self { *self }
+	fn clone(&self) -> Self {
+		*self
+	}
 }
 
 unsafe impl<V: VTableRepr + ?Sized> Send for DynRef<'_, V> where <V::VTable as VTable>::Bounds: Sync {}
@@ -326,7 +338,10 @@ pub struct DynRefMut<'a, V: VTableRepr + ?Sized> {
 	_lt: PhantomData<&'a mut ()>,
 }
 
-unsafe impl<V: VTableRepr + ?Sized> Send for DynRefMut<'_, V> where <V::VTable as VTable>::Bounds: Sync {}
+unsafe impl<V: VTableRepr + ?Sized> Send for DynRefMut<'_, V> where
+	<V::VTable as VTable>::Bounds: Sync
+{
+}
 
 impl<'a, V: VTableRepr + ?Sized> Deref for DynRef<'a, V> {
 	type Target = DynRefCallProxy<'a, V>;
@@ -707,14 +722,27 @@ where
 	{
 		Self {
 			ptr: DynUnchecked {
-				ptr: DynPtr {
-					ptr,
-					vtable,
-				},
+				ptr: DynPtr { ptr, vtable },
 			},
 			alloc,
 			layout,
 		}
+	}
+
+	/// Leak a DynBox, returning its DynPtr and Allocator
+	pub fn into_raw_with_allocator(b: Self) -> (DynPtr<V>, A) {
+		// SAFETY: the original value is forgotten
+		let alloc = unsafe { (&b.alloc as *const A).read() };
+		let ptr = b.ptr.ptr;
+
+		mem::forget(b);
+
+		(ptr, alloc)
+	}
+
+	/// Leak a DynBox into a DynPtr
+	pub fn into_raw(b: Self) -> DynPtr<V> {
+		Self::into_raw_with_allocator(b).0
 	}
 
 	/// Immutably borrows the wrapped value.
