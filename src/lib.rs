@@ -337,7 +337,7 @@ impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
 		self
 	}
 
-	/// Upcast the given dynref to a bounded dyntrait ptr.
+	/// Upcast the given dynref to a bounded dyntrait ref.
 	#[inline(always)]
 	pub fn upcast<U>(r: Self) -> DynRef<'a, U>
 	where
@@ -388,7 +388,7 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 		unsafe { DynRefMut::from_raw(self.ptr) }
 	}
 
-	/// Upcast the given mutable dynref to a bounded dyntrait ptr.
+	/// Upcast the given mutable dynref to a bounded dyntrait ref.
 	#[inline(always)]
 	pub fn upcast<U>(r: Self) -> DynRefMut<'a, U>
 	where
@@ -728,7 +728,20 @@ where
 		}
 	}
 
+	/// Upcast the dynbox to a bounded dyntrait box.
+	#[inline(always)]
+	pub fn upcast<U>(b: Self) -> DynBox<U, A>
+	where
+		U: VTableRepr + ?Sized,
+		U::VTable: AssociatedDrop + AssociatedLayout,
+		V::VTable: SubTable<U::VTable>,
+	{
+		let (ptr, alloc) = Self::into_raw_with_allocator(b);
+		unsafe { DynBox::from_raw_dyn_in(DynPtr::upcast(ptr), alloc) }
+	}
+
 	/// Leak a DynBox, returning its DynPtr and Allocator
+	#[inline(always)]
 	pub fn into_raw_with_allocator(b: Self) -> (DynPtr<V>, A) {
 		// SAFETY: the original value is forgotten
 		let alloc = unsafe { (&b.alloc as *const A).read() };
@@ -740,11 +753,13 @@ where
 	}
 
 	/// Leak a DynBox into a DynPtr
+	#[inline(always)]
 	pub fn into_raw(b: Self) -> DynPtr<V> {
 		Self::into_raw_with_allocator(b).0
 	}
 
 	/// Immutably borrows the wrapped value.
+	#[inline(always)]
 	pub fn borrow(&self) -> DynRef<V> {
 		DynRef {
 			ptr: self.ptr.ptr,
@@ -753,6 +768,7 @@ where
 	}
 
 	/// Mutably borrows the wrapped value.
+	#[inline(always)]
 	pub fn borrow_mut(&mut self) -> DynRefMut<V> {
 		DynRefMut {
 			ptr: self.ptr.ptr,
