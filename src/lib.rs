@@ -346,8 +346,8 @@ impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
 	}
 
 	#[inline(always)]
-	pub fn borrow(self) -> Self {
-		self
+	pub fn borrow(r: Self) -> Self {
+		r
 	}
 
 	/// Upcast the given dynref to a bounded dyntrait ref.
@@ -392,13 +392,13 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 	}
 
 	#[inline(always)]
-	pub fn borrow(&self) -> DynRef<V> {
-		unsafe { DynRef::from_raw(self.ptr) }
+	pub fn borrow(b: &Self) -> DynRef<V> {
+		unsafe { DynRef::from_raw(b.ptr) }
 	}
 
 	#[inline(always)]
-	pub fn borrow_mut(&mut self) -> DynRefMut<V> {
-		unsafe { DynRefMut::from_raw(self.ptr) }
+	pub fn borrow_mut(r: &mut Self) -> DynRefMut<V> {
+		unsafe { DynRefMut::from_raw(r.ptr) }
 	}
 
 	/// Upcast the given mutable dynref to a bounded dyntrait ref.
@@ -753,18 +753,18 @@ where
 
 	/// Immutably borrows the wrapped value.
 	#[inline(always)]
-	pub fn borrow(&self) -> DynRef<V> {
+	pub fn borrow(b: &Self) -> DynRef<V> {
 		DynRef {
-			ptr: self.ptr.ptr,
+			ptr: b.ptr.ptr,
 			_lt: PhantomData,
 		}
 	}
 
 	/// Mutably borrows the wrapped value.
 	#[inline(always)]
-	pub fn borrow_mut(&mut self) -> DynRefMut<V> {
+	pub fn borrow_mut(b: &mut Self) -> DynRefMut<V> {
 		DynRefMut {
-			ptr: self.ptr.ptr,
+			ptr: b.ptr.ptr,
 			_lt: PhantomData,
 		}
 	}

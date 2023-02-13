@@ -39,21 +39,21 @@ fn borrow_dyn_mut(dynref: DynRefMut<dyn TestTrait>) {}
 
 fn _call_borrowing(dynref: DynRef<dyn TestTrait>) {
 	borrow_dyn(dynref);
-	borrow_dyn(dynref.borrow());
+	borrow_dyn(DynRef::borrow(dynref));
 	borrow_dyn(dynref);
 }
 
 fn _call_mut_borrowing(mut dynref: DynRefMut<dyn TestTrait>) {
-	borrow_dyn(dynref.borrow());
-	borrow_dyn_mut(dynref.borrow_mut());
-	borrow_dyn(dynref.borrow());
-	borrow_dyn_mut(dynref.borrow_mut());
+	borrow_dyn(DynRefMut::borrow(&dynref));
+	borrow_dyn_mut(DynRefMut::borrow_mut(&mut dynref));
+	borrow_dyn(DynRefMut::borrow(&dynref));
+	borrow_dyn_mut(DynRefMut::borrow_mut(&mut dynref));
 }
 
 // borrowing must not impose additional lifetime restrictions
 
 fn _call_and_return<'a>(dynref: DynRef<'a, dyn TestTrait>) -> DynRef<'a, dyn TestTrait> {
-	dynref.borrow()
+	DynRef::borrow(dynref)
 }
 
 // Not possible to allow while upholding XOR mutability
@@ -69,9 +69,9 @@ fn _call_and_return_shared_mut<'a>(dynref: DynRefMut<'a, dyn TestTrait>) -> DynR
 */
 
 fn _call_box_and_return<'a>(dynbox: &'a DynBox<dyn TestTrait>) -> DynRef<'a, dyn TestTrait> {
-	dynbox.borrow()
+	DynBox::borrow(dynbox)
 }
 
 fn _call_box_and_return_mut<'a>(dynbox: &'a mut DynBox<dyn TestTrait>) -> DynRefMut<'a, dyn TestTrait> {
-	dynbox.borrow_mut()
+	DynBox::borrow_mut(dynbox)
 }

@@ -1,6 +1,6 @@
 use std::{ffi::c_void, marker::PhantomData, mem};
 
-use crate::{AssociatedDrop, DynTrait, VTable, AssociatedLayout, alloc::MemoryLayout};
+use crate::{alloc::MemoryLayout, AssociatedDrop, AssociatedLayout, DynTrait, VTable};
 
 /// Trait that implies nothing, used for `VTable::Bounds`
 /// when no bounds are required

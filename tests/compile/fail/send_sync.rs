@@ -14,9 +14,9 @@ fn main() {
 	let dynbox2 = DynBox::<dyn TestTrait>::new(Dummy);
 
 	// DynRef<dyn TestTrait> should not be Send
-	require_send(dynbox.borrow());
+	require_send(DynBox::borrow(&dynbox));
 	// DynRef<dyn TestTrait> should not be Sync
-	require_sync(dynbox.borrow());
+	require_sync(DynBox::borrow(&dynbox));
 
 	// DynBox<dyn TestTrait> should not be Send
 	require_send(dynbox);
