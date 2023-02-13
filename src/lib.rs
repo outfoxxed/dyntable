@@ -966,5 +966,16 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// }
 /// ```
 ///
+/// ## Backwards Compatibility
+/// VTables are fully backwards compatible, as long as:
+/// - The VTables of all trait bounds are backwards compatible.
+/// - The order of dyn entries for trait bounds must match previous versions.
+/// - The paths given to multilevel trait bounds must match.
+///   `where dyn A: C, dyn B` is not the same as `where dyn A, dyn B: C`.
+/// - Only additions have been made to trait methods, and only at the end of the method
+///   list. Removing a method is a backwards incompatible change.
+/// - All methods have the same ABI as previous versions. Method parameters and return
+///   types must either match or share the same ABI.
+///
 /// [ref-obj-safety]: https://doc.rust-lang.org/reference/items/traits.html#object-safety
 pub use dyntable_macro::dyntable;
