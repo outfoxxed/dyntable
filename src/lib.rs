@@ -616,9 +616,8 @@ where
 	}
 }
 
-impl<V, A> DynBox<V, A>
+impl<V> DynBox<V, GlobalAllocator>
 where
-	A: Deallocator,
 	V: VTableRepr + ?Sized,
 	V::VTable: AssociatedDrop + AssociatedLayout,
 {
@@ -628,14 +627,21 @@ where
 	/// # Panics
 	/// Panics on allocation failure
 	#[inline]
-	pub fn new<'v, T>(data: T) -> DynBox<V, GlobalAllocator>
+	pub fn new<'v, T>(data: T) -> Self
 	where
 		T: DynTrait<'v, V::VTable>,
 		V::VTable: 'v,
 	{
 		DynBox::new_in(data, GlobalAllocator)
 	}
+}
 
+impl<V, A> DynBox<V, A>
+where
+	A: Deallocator,
+	V: VTableRepr + ?Sized,
+	V::VTable: AssociatedDrop + AssociatedLayout,
+{
 	/// Allocates memory using the given allocator and moves `data` into
 	/// the allocated memory, upcasting it to `V`.
 	///
