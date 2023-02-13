@@ -230,6 +230,19 @@ impl<V: VTableRepr + ?Sized> Clone for DynPtr<V> {
 }
 
 impl<V: VTableRepr + ?Sized> DynPtr<V> {
+	/// Create a DynPtr to the same data as the given pointer.
+	#[inline(always)]
+	pub fn new<'v, T>(ptr: *mut T) -> Self
+	where
+		T: DynTrait<'v, V::VTable>,
+		V::VTable: 'v,
+	{
+		Self {
+			ptr: ptr as *mut c_void,
+			vtable: T::STATIC_VTABLE,
+		}
+	}
+
 	/// Upcast the given dynptr to a bounded dyntrait ptr.
 	#[inline(always)]
 	pub fn upcast<U>(ptr: Self) -> DynPtr<U>
@@ -682,32 +695,11 @@ where
 				},
 			};
 
-			Ok(Self::from_raw_in(ptr.as_ptr() as *mut _ as *mut T, alloc))
+			Ok(Self::from_raw_in(
+				DynPtr::new(ptr.as_ptr() as *mut _ as *mut T),
+				alloc,
+			))
 		}
-	}
-
-	/// Constructs a `DynBox` from a raw pointer in the given allocator,
-	/// upcasting the pointed value to `V`.
-	///
-	/// After calling this function, the raw pointer is considered to be
-	/// owned by the `DynBox` and will be cleaned up as such.
-	///
-	/// # Safety
-	/// The pointer `ptr` must be an owned pointer to a valid `T` allocated
-	/// by the given allocator.
-	#[inline(always)]
-	pub unsafe fn from_raw_in<'v, T>(ptr: *mut T, alloc: A) -> Self
-	where
-		T: DynTrait<'v, V::VTable>,
-		V::VTable: 'v,
-	{
-		Self::from_raw_dyn_in(
-			DynPtr {
-				ptr: ptr as *mut c_void,
-				vtable: T::STATIC_VTABLE,
-			},
-			alloc
-		)
 	}
 
 	/// Constructs a `DynBox` from a raw dynptr in the given allocator.
@@ -719,17 +711,12 @@ where
 	/// The pointer `ptr` must be an owned dynptr to memory allocated
 	/// by the allocator `alloc`.
 	#[inline(always)]
-	pub unsafe fn from_raw_dyn_in<'v>(
-		ptr: DynPtr<V>,
-		alloc: A,
-	) -> Self
+	pub unsafe fn from_raw_in<'v>(ptr: DynPtr<V>, alloc: A) -> Self
 	where
 		V::VTable: 'v,
 	{
 		Self {
-			ptr: DynUnchecked {
-				ptr,
-			},
+			ptr: DynUnchecked { ptr },
 			alloc,
 		}
 	}
@@ -743,7 +730,7 @@ where
 		V::VTable: SubTable<U::VTable>,
 	{
 		let (ptr, alloc) = Self::into_raw_with_allocator(b);
-		unsafe { DynBox::from_raw_dyn_in(DynPtr::upcast(ptr), alloc) }
+		unsafe { DynBox::from_raw_in(DynPtr::upcast(ptr), alloc) }
 	}
 
 	/// Leak a DynBox, returning its DynPtr and Allocator
@@ -805,7 +792,7 @@ where
 	V::VTable: 'v + AssociatedDrop + AssociatedLayout,
 {
 	fn from(value: Box<T>) -> Self {
-		unsafe { Self::from_raw_in(Box::into_raw(value), GlobalAllocator) }
+		unsafe { Self::from_raw_in(DynPtr::new(Box::into_raw(value)), GlobalAllocator) }
 	}
 }
 
@@ -822,10 +809,8 @@ where
 
 			let layout = vtable.virtual_layout();
 			if !layout.is_zero_sized() {
-				self.alloc.deallocate(
-					NonNull::new_unchecked(self.ptr.ptr.ptr as *mut u8),
-					layout,
-				);
+				self.alloc
+					.deallocate(NonNull::new_unchecked(self.ptr.ptr.ptr as *mut u8), layout);
 			}
 		}
 	}
