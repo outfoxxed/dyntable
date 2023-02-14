@@ -1,0 +1,11 @@
+error: dyn trait bound has no relation to the defined trait. dyn bounds must match a direct trait bound or indirect trait bound (through a different dyn bound)
+ --> tests/compile/fail/dyn_where_bound.rs:9:6
+  |
+9 |     dyn ObjectSafe:,
+  |         ^^^^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/compile/fail/dyn_where_bound.rs:10:3
+   |
+10 | {}
+   |   ^ consider adding a `main` function to `$DIR/tests/compile/fail/dyn_where_bound.rs`

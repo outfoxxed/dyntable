@@ -901,6 +901,29 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// {}
 /// ```
 ///
+/// ### Dyn bounds in where clause
+/// Rust already defines `dyn Trait` bounds in the `where` clause. However
+/// since they are not commonly used (and are even less likely to be used
+/// for dyntable traits) dyntable hijacks this syntax. To add a normal
+/// `dyn Trait` bound to a dyntable trait, wrap it in parenthesis as shown
+/// below.
+///
+/// ```
+/// #[dyntable]
+/// trait UsesDyntableBound: BoundedType
+/// where
+///     // This bound is used by dyntable to describe a bound path.
+///     dyn BoundedType:,
+/// {}
+///
+/// #[dyntable]
+/// trait UsesRustBound
+/// where
+///     // This bound is skipped by dyntable and passed directly to rust.
+///     (dyn BoundedType):,
+/// {}
+/// ```
+///
 /// # Macro Options
 /// - `repr` - The generated VTable's repr. `Rust` may be specified in addition
 ///            to any repr permitted by the `#[repr(...)]` attribute.
