@@ -909,6 +909,9 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// below.
 ///
 /// ```
+/// # use dyntable::dyntable;
+/// # #[dyntable]
+/// # trait BoundedType {}
 /// #[dyntable]
 /// trait UsesDyntableBound: BoundedType
 /// where

@@ -1,5 +1,7 @@
 use dyntable::dyntable;
 
+fn main() {}
+
 trait ObjectSafe {}
 
 #[dyntable]
