@@ -647,6 +647,19 @@ where
 	{
 		DynBox::new_in(data, GlobalAllocator)
 	}
+
+	/// Constructs a `DynBox` from a raw dynptr in the global allocator.
+	///
+	/// After calling this function, the raw dynptr is considered to be
+	/// owned by the `DynBox` and will be cleaned up as such.
+	///
+	/// # Safety
+	/// The pointer `ptr` must be an owned dynptr to memory allocated
+	/// by the rust global allocator.
+	#[inline(always)]
+	pub unsafe fn from_raw(ptr: DynPtr<V>) -> Self {
+		Self::from_raw_in(ptr, GlobalAllocator)
+	}
 }
 
 impl<V, A> DynBox<V, A>
@@ -711,10 +724,7 @@ where
 	/// The pointer `ptr` must be an owned dynptr to memory allocated
 	/// by the allocator `alloc`.
 	#[inline(always)]
-	pub unsafe fn from_raw_in<'v>(ptr: DynPtr<V>, alloc: A) -> Self
-	where
-		V::VTable: 'v,
-	{
+	pub unsafe fn from_raw_in(ptr: DynPtr<V>, alloc: A) -> Self {
 		Self {
 			ptr: DynUnchecked { ptr },
 			alloc,
