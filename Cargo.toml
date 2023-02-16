@@ -9,6 +9,6 @@ allocator_api = []
 [dependencies.dyntable-macro]
 path = "dyntable-macro"
 
-
-[dev-dependencies]
+[dev-dependencies] # test dependencies
 trybuild = "^1"
+libloading = "^0.7"
