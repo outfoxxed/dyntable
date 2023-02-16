@@ -541,7 +541,7 @@ unsafe impl<V: VTableRepr + ?Sized> AsDyn for DynRefCallProxy<'_, V> {
 /// Stand-in memory allocation types for the ones provided by
 /// the `allocator_api` rust unstable feature.
 pub mod alloc {
-	use std::{alloc::Layout, ptr::NonNull};
+	use std::{alloc::Layout, ptr::NonNull, fmt, error::Error};
 
 	/// An implementation of `Deallocator` can deallocate a
 	/// block of memory allocated in a compatible allocator
@@ -602,7 +602,16 @@ pub mod alloc {
 	/// when combining the given input arguments with this allocator.
 	///
 	/// Stand-in for [`std::alloc::AllocError`] (unstable)
+	#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 	pub struct AllocError;
+
+	impl Error for AllocError {}
+
+	impl fmt::Display for AllocError {
+		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+			f.write_str("memory allocation failed")
+		}
+	}
 
 	impl From<Layout> for MemoryLayout {
 		fn from(value: Layout) -> Self {
@@ -660,8 +669,6 @@ pub mod alloc {
 }
 
 /// An FFI safe Box that operates on dyntable traits.
-///
-/// Effectively an owned [`Dyn`].
 #[repr(C)]
 pub struct DynBox<V, A = GlobalAllocator>
 where
