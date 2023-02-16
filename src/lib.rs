@@ -95,6 +95,7 @@ use std::{
 #[doc(hidden)]
 #[path = "private.rs"]
 pub mod __private;
+pub mod alloc;
 
 /// This trait provides an instance of the given VTable matching this
 /// type.
@@ -535,136 +536,6 @@ unsafe impl<V: VTableRepr + ?Sized> AsDyn for DynRefCallProxy<'_, V> {
 
 	fn dyn_dealloc(self) {
 		unreachable!("references cannot be deallocated");
-	}
-}
-
-/// Stand-in memory allocation types for the ones provided by
-/// the `allocator_api` rust unstable feature.
-pub mod alloc {
-	use std::{alloc::Layout, error::Error, fmt, ptr::NonNull};
-
-	/// An implementation of `Deallocator` can deallocate a
-	/// block of memory allocated in a compatible allocator
-	/// (usually the type implementing `Deallocator` will also
-	/// implement `Allocator`)
-	pub trait Deallocator {
-		/// Deallocate a compatible block of memory, given a pointer
-		/// to it and associated information about it (usually the
-		/// memory layout or `()`)
-		///
-		/// # Safety
-		/// The given pointer must be allocated by this allocator,
-		/// and representable by the given layout.
-		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout);
-	}
-
-	/// An implementation of `Allocator` can allocate a block of
-	/// memory given its layout.
-	pub trait Allocator: Deallocator {
-		/// Allocate a block of memory, given it's layout
-		///
-		/// # Errors
-		/// An [`AllocError`] is returned if the allocator cannot
-		/// allocate the specified memory block for any reason.
-		fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError>;
-	}
-
-	/// Layout of a block of memory
-	///
-	/// Stand-in for [`core::alloc::Layout`]
-	#[derive(Copy, Clone)]
-	#[repr(C)]
-	pub struct MemoryLayout {
-		pub size: usize,
-		pub align: usize,
-	}
-
-	impl MemoryLayout {
-		/// Construct a new memory layout capable of representing `T`
-		pub const fn new<T>() -> Self {
-			let layout = Layout::new::<T>();
-
-			Self {
-				size: layout.size(),
-				align: layout.align(),
-			}
-		}
-
-		/// Indicates if a memory layout is zero sized, in which case
-		/// no memory should actually be allocated
-		pub const fn is_zero_sized(&self) -> bool {
-			self.size == 0
-		}
-	}
-
-	/// The `AllocError` error indicates an allocation failure
-	/// that may be due to resource exhaustion or to something wrong
-	/// when combining the given input arguments with this allocator.
-	///
-	/// Stand-in for [`std::alloc::AllocError`] (unstable)
-	#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-	pub struct AllocError;
-
-	impl Error for AllocError {}
-
-	impl fmt::Display for AllocError {
-		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-			f.write_str("memory allocation failed")
-		}
-	}
-
-	impl From<Layout> for MemoryLayout {
-		fn from(value: Layout) -> Self {
-			Self {
-				size: value.size(),
-				align: value.align(),
-			}
-		}
-	}
-
-	impl From<MemoryLayout> for Layout {
-		fn from(value: MemoryLayout) -> Self {
-			unsafe { Layout::from_size_align_unchecked(value.size, value.align) }
-		}
-	}
-
-	#[cfg(feature = "allocator_api")]
-	pub use std::alloc::Global as GlobalAllocator;
-	#[cfg(not(feature = "allocator_api"))]
-	/// The global memory allocator
-	pub struct GlobalAllocator;
-
-	#[cfg(feature = "allocator_api")]
-	impl<T: std::alloc::Allocator> Allocator for T {
-		fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
-			<T as std::alloc::Allocator>::allocate(self, layout.into()).map_err(|_| AllocError)
-		}
-	}
-
-	#[cfg(feature = "allocator_api")]
-	impl<T: std::alloc::Allocator> Deallocator for T {
-		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {
-			<T as std::alloc::Allocator>::deallocate(self, ptr, layout.into());
-		}
-	}
-
-	#[cfg(not(feature = "allocator_api"))]
-	impl Allocator for GlobalAllocator {
-		fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
-			unsafe {
-				Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
-					std::alloc::alloc(layout.into()),
-					0,
-				)))
-			}
-		}
-	}
-
-	#[cfg(not(feature = "allocator_api"))]
-	impl Deallocator for GlobalAllocator {
-		unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {
-			std::alloc::dealloc(ptr.as_ptr(), layout.into());
-		}
 	}
 }
 
