@@ -1104,30 +1104,57 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// trait MyTrait {}
 /// ```
 ///
-/// # VTable Representation
+/// # VTable Layout
 /// VTables are represented as a struct that is by default `#[repr(C)]` (see
 /// the `repr` option described in [Macro Options](#macro-options)).
 /// The VTable entries are laid out in the order they have been listed in,
-/// preceeded by a pointer to the type's `drop` function and the memory layout
-/// of the trait's implementing type (if not disabled) as shown below:
+/// preceeded by a pointer to the type's `drop` function, the memory layout
+/// of the trait's implementing type (if not disabled) and any `dyn` bounds
+/// (in the order they appear) as shown below:
 ///
 /// ```
-/// # use dyntable::dyntable;
+/// # use dyntable::*;
 /// #[dyntable]
-/// trait MyTrait {
-///     extern "C" fn my_function(&self);
+/// trait BoundOfBound {}
+///
+/// #[dyntable]
+/// trait BoundOfMyTrait1: BoundOfBound
+/// where
+///     dyn BoundOfBound:,
+/// {}
+///
+/// #[dyntable]
+/// trait BoundOfMyTrait2 {}
+///
+/// #[dyntable]
+/// trait MyTrait: BoundOfMyTrait1 + BoundOfMyTrait2
+/// where
+///     dyn BoundOfMyTrait1: BoundOfBound,
+///     dyn BoundOfMyTrait2:,
+/// {
+///     extern "C" fn my_function1(&self);
+///     extern "C" fn my_function2(&self);
 /// }
-/// ```
 ///
-/// Will generate a VTable like the one below:
+/// // MyTrait's VTable:
 ///
-/// ```
 /// #[repr(C)]
-/// struct MyTraitVTable {
+/// struct VTableForMyTrait {
+///     // drop and layout come first if enabled
 ///     drop: unsafe extern "C" fn(*mut core::ffi::c_void),
 ///     layout: dyntable::alloc::MemoryLayout,
-///     my_function: extern "C" fn(*const core::ffi::c_void),
+///     // any bounded dyntable trait VTables follow
+///     bound1_vtable: <dyn BoundOfMyTrait1 as VTableRepr>::VTable,
+///     // note that BoundOfBound does not have an entry, as it is contained
+///     // in BoundOfMyTrait's VTable.
+///     bound2_vtable: <dyn BoundOfMyTrait2 as VTableRepr>::VTable,
+///     // any member functions follow
+///     my_function1: extern "C" fn(*const core::ffi::c_void),
+///     my_function2: extern "C" fn(*const core::ffi::c_void),
 /// }
+/// # // this sanity check is at least better than nothing
+/// # use std::alloc::Layout;
+/// # assert_eq!(Layout::new::<VTableForMyTrait>(), Layout::new::<<dyn MyTrait as VTableRepr>::VTable>());
 /// ```
 ///
 /// ## Backwards Compatibility
