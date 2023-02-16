@@ -244,6 +244,33 @@ impl<V: VTableRepr + ?Sized> DynPtr<V> {
 	}
 
 	/// Upcast the given dynptr to a bounded dyntrait ptr.
+	///
+	/// This pointer may still be used after upcasting it, in addition
+	/// to the returned (upcasted) pointer.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait Animal {}
+	///
+	/// #[dyntable]
+	/// trait Feline: Animal
+	/// where
+	///     dyn Animal:,
+	/// {}
+	///
+	/// struct Cat;
+	///
+	/// impl Feline for Cat {}
+	/// impl Animal for Cat {}
+	///
+	/// let cat: DynPtr<dyn Feline> = DynBox::into_raw(DynBox::new(Cat));
+	/// let feline: DynPtr<dyn Animal> = DynPtr::upcast(cat);
+	/// // Move the pointer back into a box to drop it.
+	/// let _ = unsafe { DynBox::from_raw_in(feline, dyntable::alloc::GlobalAllocator) };
+	/// ```
 	#[inline(always)]
 	pub fn upcast<U>(ptr: Self) -> DynPtr<U>
 	where
@@ -351,6 +378,29 @@ impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
 	}
 
 	/// Upcast the given dynref to a bounded dyntrait ref.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait Animal {}
+	///
+	/// #[dyntable]
+	/// trait Feline: Animal
+	/// where
+	///     dyn Animal:,
+	/// {}
+	///
+	/// struct Cat;
+	///
+	/// impl Feline for Cat {}
+	/// impl Animal for Cat {}
+	///
+	/// let feline: DynBox<dyn Feline> = DynBox::new(Cat);
+	/// let feline_ref: DynRef<dyn Feline> = DynBox::borrow(&feline);
+	/// let animal_ref: DynRef<dyn Animal> = DynRef::upcast(feline_ref);
+	/// ```
 	#[inline(always)]
 	pub fn upcast<U>(r: Self) -> DynRef<'a, U>
 	where
@@ -402,6 +452,29 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 	}
 
 	/// Upcast the given mutable dynref to a bounded dyntrait ref.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait Animal {}
+	///
+	/// #[dyntable]
+	/// trait Feline: Animal
+	/// where
+	///     dyn Animal:,
+	/// {}
+	///
+	/// struct Cat;
+	///
+	/// impl Feline for Cat {}
+	/// impl Animal for Cat {}
+	///
+	/// let mut feline: DynBox<dyn Feline> = DynBox::new(Cat);
+	/// let feline_ref: DynRefMut<dyn Feline> = DynBox::borrow_mut(&mut feline);
+	/// let animal_ref: DynRefMut<dyn Animal> = DynRefMut::upcast(feline_ref);
+	/// ```
 	#[inline(always)]
 	pub fn upcast<U>(r: Self) -> DynRefMut<'a, U>
 	where
@@ -656,6 +729,23 @@ where
 	/// # Safety
 	/// The pointer `ptr` must be an owned dynptr to memory allocated
 	/// by the rust global allocator.
+	///
+	/// # Examples
+	/// Recreate a `DynBox` which was previously converted to a raw pointer
+	/// using [`DynBox::into_raw`]:
+	///
+	/// ```
+	/// # use dyntable::*;
+	///
+	/// #[dyntable]
+	/// trait MyTrait {}
+	/// struct MyStruct;
+	/// impl MyTrait for MyStruct {}
+	///
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let ptr = DynBox::into_raw(x);
+	/// let x: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw(ptr) };
+	/// ```
 	#[inline(always)]
 	pub unsafe fn from_raw(ptr: DynPtr<V>) -> Self {
 		Self::from_raw_in(ptr, GlobalAllocator)
@@ -723,6 +813,24 @@ where
 	/// # Safety
 	/// The pointer `ptr` must be an owned dynptr to memory allocated
 	/// by the allocator `alloc`.
+	///
+	/// # Examples
+	/// Recreate a `DynBox` which was previously converted to a raw pointer
+	/// using [`DynBox::into_raw_with_allocator`]:
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// use dyntable::alloc::GlobalAllocator;
+	///
+	/// #[dyntable]
+	/// trait MyTrait {}
+	/// struct MyStruct;
+	/// impl MyTrait for MyStruct {}
+	///
+	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(MyStruct, GlobalAllocator);
+	/// let (ptr, alloc) = DynBox::into_raw_with_allocator(x);
+	/// let x: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw_in(ptr, alloc) };
+	/// ```
 	#[inline(always)]
 	pub unsafe fn from_raw_in(ptr: DynPtr<V>, alloc: A) -> Self {
 		Self {
@@ -732,6 +840,28 @@ where
 	}
 
 	/// Upcast the dynbox to a bounded dyntrait box.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait Animal {}
+	///
+	/// #[dyntable]
+	/// trait Feline: Animal
+	/// where
+	///     dyn Animal:,
+	/// {}
+	///
+	/// struct Cat;
+	///
+	/// impl Feline for Cat {}
+	/// impl Animal for Cat {}
+	///
+	/// let feline: DynBox<dyn Feline> = DynBox::new(Cat);
+	/// let animal_ref: DynBox<dyn Animal> = DynBox::upcast(feline);
+	/// ```
 	#[inline(always)]
 	pub fn upcast<U>(b: Self) -> DynBox<U, A>
 	where
