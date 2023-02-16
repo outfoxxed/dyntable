@@ -541,7 +541,7 @@ unsafe impl<V: VTableRepr + ?Sized> AsDyn for DynRefCallProxy<'_, V> {
 /// Stand-in memory allocation types for the ones provided by
 /// the `allocator_api` rust unstable feature.
 pub mod alloc {
-	use std::{alloc::Layout, ptr::NonNull, fmt, error::Error};
+	use std::{alloc::Layout, error::Error, fmt, ptr::NonNull};
 
 	/// An implementation of `Deallocator` can deallocate a
 	/// block of memory allocated in a compatible allocator
@@ -575,8 +575,8 @@ pub mod alloc {
 	#[derive(Copy, Clone)]
 	#[repr(C)]
 	pub struct MemoryLayout {
-		size: usize,
-		align: usize,
+		pub size: usize,
+		pub align: usize,
 	}
 
 	impl MemoryLayout {
