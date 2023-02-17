@@ -799,7 +799,7 @@ where
 {
 	fn from(value: Box<T, A>) -> Self {
 		let (ptr, alloc) = Box::into_raw_with_allocator(value);
-		unsafe { Self::from_raw_in(ptr, alloc) }
+		unsafe { Self::from_raw_in(DynPtr::new(ptr), alloc) }
 	}
 }
 
