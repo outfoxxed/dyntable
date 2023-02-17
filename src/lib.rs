@@ -551,8 +551,9 @@ where
 	ptr: DynUnchecked<V>,
 }
 
-unsafe impl<V> AsDyn for DynBox<V>
+unsafe impl<V, A> AsDyn for DynBox<V, A>
 where
+	A: Deallocator,
 	V: VTableRepr + ?Sized,
 	V::VTable: AssociatedDrop + AssociatedLayout,
 {
