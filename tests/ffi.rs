@@ -1,3 +1,5 @@
+#![cfg(not(miri))]
+
 use std::{
 	env,
 	ffi::c_void,
