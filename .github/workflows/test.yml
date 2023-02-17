@@ -1,0 +1,22 @@
+name: Run Tests
+on: push
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: setup nix
+        uses: cachix/install-nix-action@v19
+
+      - name: check formatting
+        run: nix develop .# -c cargo fmt --check
+      - name: check default features
+        run: nix develop .#stable -c cargo check
+      - name: check allocator_api
+        run: nix develop .# -c cargo check --features allocator_api
+      - name: run stable tests
+        run: nix develop .#stable -c cargo test
+      - name: run tests under miri
+        run: nix develop .# -c cargo miri test
