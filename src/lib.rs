@@ -145,9 +145,6 @@ pub unsafe trait VTable {
 ///
 /// # Notes
 /// This trait is implemented by the [`dyntable`] macro.
-///
-/// This trait is only nessesary for the outermost vtable when
-/// VTables are contained within eachother.
 pub unsafe trait AssociatedDrop: VTable {
 	/// Drop the given pointer as if it is a pointer to a
 	/// type associated with this VTable, without deallocating
@@ -213,8 +210,13 @@ pub trait VTableRepr {
 
 /// An FFI safe wide pointer to a dyntable trait, AKA dynptr.
 ///
-/// Use [DynRef::from_raw] or [DynRefMut::from_raw] to call functions
+/// Use [`DynRef::from_raw`] or [`DynRefMut::from_raw`] to call functions
 /// on this pointer.
+///
+/// # Notes
+/// While constructing a [`DynPtr`] is always safe, using the pointer
+/// is only safe as long as the `ptr` and `vtable` fields both point to
+/// valid data.
 #[repr(C)]
 pub struct DynPtr<V: VTableRepr + ?Sized> {
 	// Having the data pointer before the VTable pointer generates
@@ -231,7 +233,10 @@ impl<V: VTableRepr + ?Sized> Clone for DynPtr<V> {
 }
 
 impl<V: VTableRepr + ?Sized> DynPtr<V> {
-	/// Create a DynPtr to the same data as the given pointer.
+	/// Create a [`DynPtr`] to the same data as the given pointer.
+	///
+	/// This method uses the static VTable associated with the provided
+	/// type. To use a different VTable, construct the [`DynPtr`] manually.
 	#[inline(always)]
 	pub fn new<'v, T>(ptr: *mut T) -> Self
 	where
@@ -342,8 +347,8 @@ pub unsafe trait AsDyn {
 	///
 	/// This function may panic if it is unreasonable to
 	/// deallocate the contained pointer. Such cases include
-	/// deallocating a [`Dyn`], which cannot be obtained except
-	/// behind a reference.
+	/// deallocating a `DynRefCallProxy`, which is a proxy type
+	/// that cannot be obtained except behind a reference.
 	fn dyn_dealloc(self);
 }
 
@@ -365,6 +370,38 @@ impl<V: VTableRepr + ?Sized> Clone for DynRef<'_, V> {
 unsafe impl<V: VTableRepr + ?Sized> Send for DynRef<'_, V> where <V::VTable as VTable>::Bounds: Sync {}
 
 impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
+	/// Casts a [`DynPtr`] to a [`DynRef`].
+	///
+	/// # Safety
+	/// The pointer `ptr` must be an owned dynptr to memory allocated
+	/// by the rust global allocator. It's data pointer and vtable pointer
+	/// must both live for the provided lifetime of the created reference.
+	///
+	/// # Examples
+	/// Use a [`DynRef`] to call a function on a [`DynPtr`]:
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait MyTrait {
+	///     extern "C" fn foo(&self);
+	/// }
+	///
+	/// struct MyStruct;
+	///
+	/// impl MyTrait for MyStruct {
+	///     extern "C" fn foo(&self) {}
+	/// }
+	///
+	/// // leak a dynbox into a raw ptr
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let ptr = DynBox::into_raw(x);
+	///
+	/// unsafe { DynRef::from_raw(ptr).foo() };
+	///
+	/// // raw ptr is dropped using a `DynBox`
+	/// let _: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw(ptr) };
+	/// ```
 	#[inline(always)]
 	pub unsafe fn from_raw(ptr: DynPtr<V>) -> Self {
 		Self {
@@ -434,6 +471,38 @@ impl<'a, V: VTableRepr + ?Sized> Deref for DynRef<'a, V> {
 }
 
 impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
+	/// Casts a [`DynPtr`] to a [`DynRefMut`].
+	///
+	/// # Safety
+	/// The pointer `ptr` must be an owned dynptr to memory allocated
+	/// by the rust global allocator. It's data pointer and vtable pointer
+	/// must both live for the provided lifetime of the created reference.
+	///
+	/// # Examples
+	/// Use a [`DynRefMut`] to call a function on a [`DynPtr`]:
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait MyTrait {
+	///     extern "C" fn foo(&mut self);
+	/// }
+	///
+	/// struct MyStruct;
+	///
+	/// impl MyTrait for MyStruct {
+	///     extern "C" fn foo(&mut self) {}
+	/// }
+	///
+	/// // leak a dynbox into a raw ptr
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let ptr = DynBox::into_raw(x);
+	///
+	/// unsafe { DynRefMut::from_raw(ptr).foo() };
+	///
+	/// // raw ptr is dropped using a `DynBox`
+	/// let _: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw(ptr) };
+	/// ```
 	#[inline(always)]
 	pub unsafe fn from_raw(ptr: DynPtr<V>) -> Self {
 		Self {
@@ -590,7 +659,19 @@ where
 	/// the allocated memory, upcasting it to `V`.
 	///
 	/// # Panics
-	/// Panics on allocation failure
+	/// This method panics on allocation failure.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait MyTrait {}
+	/// struct MyStruct;
+	/// impl MyTrait for MyStruct {}
+	///
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// ```
 	#[inline]
 	pub fn new<'v, T>(data: T) -> Self
 	where
@@ -615,7 +696,6 @@ where
 	///
 	/// ```
 	/// # use dyntable::*;
-	///
 	/// #[dyntable]
 	/// trait MyTrait {}
 	/// struct MyStruct;
@@ -641,7 +721,19 @@ where
 	/// the allocated memory, upcasting it to `V`.
 	///
 	/// # Panics
-	/// Panics on allocation failure
+	/// This method panics on allocation failure.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait MyTrait {}
+	/// struct MyStruct;
+	/// impl MyTrait for MyStruct {}
+	///
+	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(MyStruct, dyntable::alloc::GlobalAllocator);
+	/// ```
 	#[inline]
 	pub fn new_in<'v, T>(data: T, alloc: A) -> Self
 	where
@@ -658,6 +750,22 @@ where
 	/// Allocates memory using the given allocator and moves `data` into
 	/// the allocated memory, upcasting it to `V`, and returning an error
 	/// if the allocation fails.
+	///
+	/// # Panics
+	/// This method panics on allocation failure.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait MyTrait {}
+	/// struct MyStruct;
+	/// impl MyTrait for MyStruct {}
+	///
+	/// let x: DynBox<dyn MyTrait> = DynBox::try_new_in(MyStruct, dyntable::alloc::GlobalAllocator)?;
+	/// # Ok::<_, dyntable::alloc::AllocError>(())
+	/// ```
 	#[inline]
 	pub fn try_new_in<'v, T>(data: T, alloc: A) -> Result<Self, AllocError>
 	where
@@ -753,6 +861,23 @@ where
 	}
 
 	/// Leak a DynBox, returning its DynPtr and Allocator
+	///
+	/// # Examples
+	/// Recreate a `DynBox` which was previously converted to a raw pointer.
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// use dyntable::alloc::GlobalAllocator;
+	///
+	/// #[dyntable]
+	/// trait MyTrait {}
+	/// struct MyStruct;
+	/// impl MyTrait for MyStruct {}
+	///
+	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(MyStruct, GlobalAllocator);
+	/// let (ptr, alloc) = DynBox::into_raw_with_allocator(x);
+	/// let x: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw_in(ptr, alloc) };
+	/// ```
 	#[inline(always)]
 	pub fn into_raw_with_allocator(b: Self) -> (DynPtr<V>, A) {
 		// SAFETY: the original value is forgotten
@@ -765,6 +890,21 @@ where
 	}
 
 	/// Leak a DynBox into a DynPtr
+	///
+	/// # Examples
+	/// Recreate a `DynBox` which was previously converted to a raw pointer.
+	///
+	/// ```
+	/// # use dyntable::*;
+	/// #[dyntable]
+	/// trait MyTrait {}
+	/// struct MyStruct;
+	/// impl MyTrait for MyStruct {}
+	///
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let ptr = DynBox::into_raw(x);
+	/// let x: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw(ptr) };
+	/// ```
 	#[inline(always)]
 	pub fn into_raw(b: Self) -> DynPtr<V> {
 		Self::into_raw_with_allocator(b).0
@@ -838,7 +978,7 @@ where
 use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 
 /// This macro implements functionality required to use the
-/// annotated trait as a FFI safe [`Dyn`]ptr.
+/// annotated trait as a FFI safe dynptr.
 ///
 /// When applied to a trait, this macro will generate
 /// - A VTable representing the trait, including its bounds and methods.
@@ -846,7 +986,7 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// - Implementations of [`VTableRepr`], which provides a path
 ///   to vtables associated with the trait.
 /// - An implementation of the trait for all types implementing
-///   [`AsDyn`]`<Repr = (your trait)>`, such as [`Dyn`]`<(your trait)>`.
+///   [`AsDyn`]`<Repr = (your trait)>`, such as [`DynRef`]`<dyn (your trait)>`.
 /// - Various boilerplate used in the above implementations.
 ///
 /// # Trait Requirements
