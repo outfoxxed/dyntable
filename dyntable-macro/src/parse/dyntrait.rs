@@ -81,8 +81,8 @@ impl Parse for DynTraitBody {
 					// `foo::Bar<Baz>` becomes `Bar`
 					let bound_name = subtable.path.segments.last()
 						// under what circumstanced would you type `trait MyTrait: :: {}`
-						.ok_or_else(|| syn::Error::new(
-							subtable.path.span(),
+						.ok_or_else(|| syn::Error::new_spanned(
+							&subtable.path,
 							"not a valid path",
 						))?
 						.ident
@@ -115,8 +115,8 @@ impl Parse for DynTraitBody {
 			.into_iter()
 			.map(|item| match item {
 				TraitItem::Method(TraitItemMethod { sig, .. }) => Ok(MethodEntry::try_from(sig)?),
-				item => Err(syn::Error::new(
-					item.span(),
+				item => Err(syn::Error::new_spanned(
+					item,
 					"only method defintions are allowed in #[dyntable] annotated traits",
 				)),
 			})
@@ -161,8 +161,8 @@ fn solve_subtables(
 			None => {
 				for bound in &bounds {
 					if specified_paths.contains(bound) {
-						return Err(syn::Error::new(
-							bound.span(),
+						return Err(syn::Error::new_spanned(
+							bound,
 							"exactly one path to an inherited trait bound must be specified (this path is a duplicate)",
 						))
 					} else {
@@ -173,8 +173,8 @@ fn solve_subtables(
 				supertrait_map.insert(bounded_ty, Some(bounds));
 			},
 			Some(_) => {
-				return Err(syn::Error::new(
-					bounded_ty.span(),
+				return Err(syn::Error::new_spanned(
+					bounded_ty,
 					"supertrait already listed",
 				))
 			},
@@ -201,8 +201,8 @@ fn solve_subtables(
 	// referenced directly or indirectly from a trait bound.
 	for supertrait in supertrait_map.keys() {
 		if !used_supertrait_entries.contains(supertrait) {
-			return Err(syn::Error::new(
-				supertrait.span(),
+			return Err(syn::Error::new_spanned(
+				supertrait,
 				"dyn trait bound has no relation to the defined trait. dyn bounds must match a direct trait bound or indirect trait bound (through a different dyn bound)",
 			))
 		}
@@ -283,8 +283,8 @@ impl TryFrom<Signature> for MethodEntry {
 		} = sig;
 
 		if let Some(variadic) = variadic {
-			return Err(syn::Error::new(
-				variadic.span(),
+			return Err(syn::Error::new_spanned(
+				variadic,
 				"variadics are not supported in #[dyntable] annotated traits",
 			))
 		}
@@ -300,8 +300,8 @@ impl TryFrom<Signature> for MethodEntry {
 					..
 				}) => {
 					if receiver.is_some() {
-						return Err(syn::Error::new(
-							self_token.span(),
+						return Err(syn::Error::new_spanned(
+							self_token,
 							"`self` is bound more than once",
 						))
 					}
@@ -315,8 +315,8 @@ impl TryFrom<Signature> for MethodEntry {
 					..
 				}) => {
 					if receiver.is_some() {
-						return Err(syn::Error::new(
-							self_token.span(),
+						return Err(syn::Error::new_spanned(
+							self_token,
 							"`self` is bound more than once",
 						))
 					}
@@ -349,8 +349,8 @@ impl TryFrom<Signature> for MethodEntry {
 							underscore_token, ..
 						}) => Ident::new("_", underscore_token.span()),
 						pat => {
-							return Err(syn::Error::new(
-								pat.span(),
+							return Err(syn::Error::new_spanned(
+								pat,
 								"patterns are not supported in dyntrait methods",
 							))
 						},
@@ -361,7 +361,7 @@ impl TryFrom<Signature> for MethodEntry {
 							// explicitly typed self makes it impossible to determine if the
 							// type is a reference or value, due to type aliases and permitted
 							// wrappers.
-							return Err(syn::Error::new(ident.span(), "`self` parameter must use implicit type syntax (e.g. `self`, `&self`, `&mut self`)"));
+							return Err(syn::Error::new_spanned(ident, "`self` parameter must use implicit type syntax (e.g. `self`, `&self`, `&mut self`)"));
 						} else {
 							return Err(syn::Error::new(pat_span, "first parameter must be `self`"))
 						}

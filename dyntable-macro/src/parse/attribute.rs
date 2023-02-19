@@ -6,7 +6,7 @@ use syn::{
 	punctuated::Punctuated,
 	Ident,
 	LitBool,
-	Token,
+	Token, LitStr,
 };
 
 use super::Abi;
@@ -43,18 +43,24 @@ impl Parse for AttributeOptions {
 						"repr" => AttrOption::Repr(Abi::parse_struct_repr(input)?),
 						"relax_abi" => AttrOption::RelaxAbi(input.parse::<LitBool>()?.value),
 						"drop" => AttrOption::Drop({
-							let abi = input.parse::<Ident>()?;
+							if input.peek(Ident) {
+								let abi = input.parse::<Ident>()?;
 
-							match &abi.to_string() as &str {
-								"none" => None,
-								_ => Some(Abi::Explicit(abi)),
+								match &abi.to_string() as &str {
+									"none" => None,
+									_ => return Err(syn::Error::new_spanned(abi, "expected quoted ABI or `none`")),
+								}
+							} else {
+								let abi = input.parse::<LitStr>()?;
+
+								Some(Abi::Explicit(Ident::new(&abi.value(), abi.span())))
 							}
 						}),
 						"embed_layout" => AttrOption::EmbedLayout(input.parse::<LitBool>()?.value),
 						"vtable" => AttrOption::VTableName(input.parse::<Ident>()?),
 						_ => {
-							return Err(syn::Error::new(
-								option_name.span(),
+							return Err(syn::Error::new_spanned(
+								&option_name,
 								&format!("Unknown option '{}'", option_name.to_string()),
 							))
 						},

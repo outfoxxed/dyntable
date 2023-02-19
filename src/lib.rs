@@ -1099,11 +1099,13 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// - `drop` - Specify the existence and ABI of the VTable's `drop` function.
 ///            Valid options are `none`, to remove the `drop` function, or
 ///            any ABI permitted by the `extern "..."` specifier.
-///            Required to use this trait in owning dyn containers such as [`DynBox`]
-///            Defaults to `C`.
+///            This option is required for using the annotated trait in owned dyn
+///            containers such as a [`DynBox`].
+///            Defaults to `"C"`.
 /// - `embed_layout` - Embed the layout (size + align) of the implementing type
 ///                    in the vtable.
-///                    Required to use this trait in owning dyn containers such as [`DynBox`]
+///                    This option is required for using the annotated trait in owned dyn
+///                    containers such as a [`DynBox`].
 ///                    Defaults to `true`.
 /// - `vtable` - Specify the name of the generated VTable.
 ///              Defaults to `(your trait)VTable`.
@@ -1112,7 +1114,13 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// attribute with all options explicitly specified with default values:
 /// ```
 /// # use dyntable::dyntable;
-/// #[dyntable(repr = C, relax_abi = false, drop = C, vtable = MyTraitVTable)]
+/// #[dyntable(
+///     repr = C,
+///     relax_abi = false,
+///     drop = "C",
+///     embed_layout = true,
+///     vtable = MyTraitVTable
+/// )]
 /// trait MyTrait {}
 /// ```
 ///

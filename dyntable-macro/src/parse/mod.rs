@@ -3,7 +3,6 @@ use quote::ToTokens;
 use syn::{
 	parse::ParseStream,
 	punctuated::Punctuated,
-	spanned::Spanned,
 	token,
 	Attribute,
 	Generics,
@@ -297,8 +296,8 @@ impl DynTraitInfo {
 		if !attr_options.relax_abi {
 			for method in &trait_body.methods {
 				if method.abi.is_none() {
-					return Err(syn::Error::new(
-						method.fn_token.span(),
+					return Err(syn::Error::new_spanned(
+						method.fn_token,
 						"missing explicit ABI specifier (add `relax_abi = true` to the #[dyntrait] annotation to relax this check)",
 					))
 				}

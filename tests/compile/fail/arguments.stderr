@@ -8,7 +8,7 @@ error: variadics are not supported in #[dyntable] annotated traits
   --> tests/compile/fail/arguments.rs:16:17
    |
 16 |     fn test(&self, ...);
-   |                    ^
+   |                    ^^^
 
 error: first parameter must be `self`
   --> tests/compile/fail/arguments.rs:23:10
