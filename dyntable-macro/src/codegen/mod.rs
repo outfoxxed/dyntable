@@ -4,21 +4,16 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, ToTokens};
 use syn::{
 	punctuated::Punctuated,
-	ConstParam,
 	GenericParam,
 	Lifetime,
-	LifetimeDef,
 	Token,
 	TraitBound,
 	Type,
-	TypeParam,
 	TypeParamBound,
-	TypePtr,
 	TypeReference,
 };
 
 use crate::parse::{
-	Abi,
 	DynTraitInfo,
 	MethodEntry,
 	MethodParam,
@@ -29,6 +24,8 @@ use crate::parse::{
 	VTableEntry,
 };
 
+mod vtable;
+
 /// Generate expanded macro code from trait body
 pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let vtable_ident = &dyntrait.vtable.name;
@@ -37,6 +34,9 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let trait_attrs = &dyntrait.dyntrait.attrs;
 	let proxy_trait = format_ident!("__DynTrait_{}", dyntrait.dyntrait.ident);
 	let (impl_generics, ty_generics, where_clause) = dyntrait.generics.split_for_impl();
+
+	let vtable_def = vtable::gen_vtable(dyntrait);
+	let vtable_impl = vtable::gen_impl(dyntrait);
 
 	let impl_generic_entries = dyntrait
 		.generics
@@ -137,81 +137,6 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		}
 	};
 
-	let vtable_repr = dyntrait.vtable.repr.as_repr();
-
-	let vtable_entries = dyntrait.entries.iter().map(|entry| match entry {
-		VTableEntry::Subtable(SubtableEntry {
-			ident,
-			subtable: Subtable { path, .. },
-		}) => quote::quote! {
-			#ident: <(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable
-		},
-		VTableEntry::Method(MethodEntry {
-			unsafety,
-			abi,
-			fn_token,
-			ident,
-			receiver,
-			inputs,
-			output,
-			..
-		}) => {
-			let self_ptr_type = receiver.pointer_type();
-
-			let inputs = inputs
-				.iter()
-				.map(|MethodParam { ty, .. }| strip_references(ty.clone()));
-
-			let output = match output {
-				syn::ReturnType::Default => None,
-				syn::ReturnType::Type(_, ty) => Some(strip_references(ty.as_ref().clone())),
-			}
-			.into_iter();
-
-			quote::quote! {
-				#vis #ident: #unsafety #abi #fn_token (
-					*#self_ptr_type ::core::ffi::c_void,
-					#(#inputs),*
-				) #( -> #output)*
-			}
-		},
-	});
-
-	let drop_abi = dyntrait
-		.drop
-		.as_ref()
-		.map(Abi::as_abi)
-		.into_iter()
-		.collect::<Vec<_>>();
-	let drop_fn_ident = drop_abi
-		.iter()
-		.map(|_| format_ident!("__DynDrop_{}", ident))
-		.into_iter()
-		.collect::<Vec<_>>();
-	let vtable_phantom_generics = {
-		let generics = impl_generic_entries
-			.iter()
-			.filter_map(|entry| match entry {
-				GenericParam::Lifetime(LifetimeDef { lifetime, .. }) => {
-					Some(quote::quote! { &#lifetime () })
-				},
-				GenericParam::Type(TypeParam { ident, .. }) => Some(ident.to_token_stream()),
-				GenericParam::Const(_) => None,
-			})
-			.collect::<Vec<_>>();
-
-		match generics.len() {
-			1 => quote::quote! { #(#generics),* },
-			// 0 OR more than 1 (0 params = `()`)
-			_ => quote::quote! { (#(#generics),*) },
-		}
-	};
-
-	let embed_layout = match dyntrait.embed_layout {
-		true => Some(TokenStream::new()),
-		false => None,
-	}.into_iter().collect::<Vec<_>>();
-
 	let subtable_impls = dyntrait.entries.iter().filter_map(|entry| match entry {
 		VTableEntry::Method(_) => None,
 		VTableEntry::Subtable(SubtableEntry {
@@ -259,111 +184,6 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				#(#child_entries)*
 			}
 		}),
-	});
-
-	// Default entries for the generated VTable
-	let impl_vtable_entries = dyntrait.entries.iter().map(|entry| match entry {
-		VTableEntry::Subtable(SubtableEntry {
-			ident,
-			subtable: Subtable { path, .. },
-		}) => {
-			quote::quote! {
-				#ident: <__DynTarget as ::dyntable::DynTrait<
-					<(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable,
-				>>::VTABLE
-			}
-		},
-		VTableEntry::Method(MethodEntry {
-			unsafety,
-			abi,
-			fn_token,
-			ident: fn_ident,
-			receiver,
-			inputs,
-			output,
-			..
-		}) => {
-			let inputs = inputs.iter().map(|_| <Token![_]>::default());
-
-			let output = match output {
-				syn::ReturnType::Default => None,
-				syn::ReturnType::Type(..) => Some(<Token![_]>::default()),
-			}
-			.into_iter();
-
-			// functions that take self by value need a proxy function to
-			// convert from a pointer to an owned Self
-			let fn_path = match receiver {
-				MethodReceiver::Reference(_) => quote::quote! { __DynTarget::#fn_ident },
-				MethodReceiver::Value(_) => {
-					let fn_generics = dyntrait
-						.generics
-						.params
-						.clone()
-						.into_iter()
-						.map(|param| match param {
-							GenericParam::Type(TypeParam { ident, .. }) => ident.to_token_stream(),
-							GenericParam::Lifetime(LifetimeDef { lifetime, .. }) => {
-								lifetime.to_token_stream()
-							},
-							GenericParam::Const(ConstParam { ident, .. }) => {
-								ident.to_token_stream()
-							},
-						})
-						.collect::<Vec<_>>();
-
-					let fn_ident = format_ident!("__DynImpl_{}_{}", ident, fn_ident);
-					quote::quote! { #fn_ident::<#(#fn_generics,)* __DynTarget> }
-				},
-			};
-
-			quote::quote! {
-				#fn_ident: unsafe {
-					::core::intrinsics::transmute(
-						#fn_path as
-							#unsafety #abi #fn_token (
-								_,
-								#(#inputs),*
-							) #( -> #output)*
-					)
-				}
-			}
-		},
-	});
-
-	// functions that take self by value need a proxy function to
-	// convert from a pointer to an owned Self
-	let proxy_fns = dyntrait.entries.iter().filter_map(|entry| match entry {
-		VTableEntry::Method(MethodEntry {
-			unsafety,
-			abi,
-			fn_token,
-			ident: fn_ident,
-			generics,
-			receiver: MethodReceiver::Value(_),
-			inputs,
-			output,
-		}) => {
-			let proxy_fn_ident = format_ident!("__DynImpl_{}_{}", ident, fn_ident);
-			let (_, _, fn_where_clause) = generics.split_for_impl();
-			let param_list = MethodParam::params_safe(inputs.iter());
-			let arg_list = MethodParam::idents_safe(inputs.iter());
-
-			Some(quote::quote! {
-				#[allow(non_snake_case)]
-				#unsafety #abi #fn_token #proxy_fn_ident <
-					#(#impl_generic_entries,)*
-					__DynSelf: #ident #ty_generics,
-				> (__dyn_self: *mut __DynSelf, #(#param_list),*) #output
-				#fn_where_clause {
-					<__DynSelf as #ident #ty_generics>::#fn_ident(
-						unsafe { __dyn_self.read() },
-						#(#arg_list),*
-					)
-				}
-			})
-		},
-		_ => None,
 	});
 
 	let subtable_paths = dyntrait
@@ -443,15 +263,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			#(#trait_entries)*
 		}
 
-		#[allow(non_snake_case)]
-		#vtable_repr
-		#vis struct #vtable_ident #ty_generics
-		#where_clause {
-			#(#vis __drop: unsafe #drop_abi fn(*mut ::core::ffi::c_void),)*
-			#(#vis __layout: ::dyntable::alloc::MemoryLayout, #embed_layout)* // embed_layout is a marker
-			#(#vtable_entries,)*
-			#vis __generics: ::core::marker::PhantomData<#vtable_phantom_generics>
-		}
+		#vtable_def
 
 		#vtable_bound_trait
 		unsafe impl #impl_generics ::dyntable::VTable for #vtable_ident #ty_generics
@@ -504,54 +316,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics = __DynTrait::STATIC_VTABLE;
 		}
 
-		unsafe impl<
-			'__dyn_vtable,
-			#(#impl_vt_generic_entries,)*
-			__DynTarget,
-		> #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>
-		for __DynTarget
-		where
-			#(#where_predicates,)*
-			__DynTarget: #ident #ty_generics,
-		{
-			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics =
-				&<Self as #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>>::VTABLE;
-			const VTABLE: #vtable_ident #ty_generics = #vtable_ident {
-				#(__drop: #drop_fn_ident::<__DynTarget>,)*
-				#(__layout: ::dyntable::alloc::MemoryLayout::new::<__DynTarget>(), #embed_layout)* // embed_layout is a marker
-				#(#impl_vtable_entries,)*
-				__generics: ::core::marker::PhantomData,
-			};
-		}
-
-		#(#proxy_fns)*
-
-		#(
-			#[allow(non_snake_case)]
-			unsafe #drop_abi fn #drop_fn_ident<T>(ptr: *mut ::core::ffi::c_void) {
-				::core::ptr::drop_in_place(ptr as *mut T);
-			}
-
-			unsafe impl #impl_generics ::dyntable::AssociatedDrop
-			for #vtable_ident #ty_generics
-			#where_clause {
-				#[inline(always)]
-				unsafe fn virtual_drop(&self, instance: *mut ::core::ffi::c_void) {
-					(self.__drop)(instance)
-				}
-			}
-		)*
-
-		#(#embed_layout // marker
-			unsafe impl #impl_generics ::dyntable::AssociatedLayout
-			for #vtable_ident #ty_generics
-			#where_clause {
-				#[inline(always)]
-				fn virtual_layout(&self) -> ::dyntable::alloc::MemoryLayout {
-					self.__layout
-				}
-			}
-		)*
+		#vtable_impl
 
 		impl<
 			#(#impl_generic_entries,)*
@@ -569,28 +334,5 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		{
 			#(#dyn_impl_methods)*
 		}
-	}
-}
-
-/// Replace toplevel references in a [`Type`] with raw pointers
-// TODO: reassess how nessesary this is and if it could be a
-// source of UB. At this point the main goal is to copy the old
-// macro's functionality (toplevel references to pointers).
-fn strip_references(ty: Type) -> Type {
-	match ty {
-		Type::Reference(TypeReference {
-			mutability, elem, ..
-		}) => Type::Ptr(TypePtr {
-			star_token: Default::default(),
-			const_token: match &mutability {
-				Some(_) => None,
-				None => Some(Default::default()),
-			},
-			mutability,
-			// TODO: add tests to check if nested references need
-			// to be removed (if they need to be removed at all, see above todo)
-			elem,
-		}),
-		other => other,
 	}
 }
