@@ -1,81 +1,95 @@
-//!  -- TODO --
+//! FFI safe traits implemented as fat pointers, for use with Rust to Rust and Rust to C FFI.
 //!
-//! # Basic Usage
+//! # Overview
+//! This crate is an alternative implementation of Rust trait objects that
+//! aims to get around one main limitation: The ABI of trait objects is
+//! unspecified.
+//!
+//! Usually this limitation is not an issue because the majority of rust code
+//! is statically linked, but it means trait objects are largely useless for
+//! a variety of situations such as:
+//! - Implementing a plugin system
+//! - Interacting with C, or any other language
+//! - Dynamic linking
+//! - On the fly codegen
+//!
+//! This crate implements idiomatic trait objects, implemented using fat pointers
+//! similar to native rust traits, with support for trait bounds (inheritance) and
+//! upcasting. Implementing dyntable traits works exactly the same as normal rust traits.
+//!
+//! # Usage
+//! The [`#[dyntable]`](dyntable) macro can be applied to a trait and will automatically
+//! generate all necessary machinery behind the scenes ([details](dyntable#what-a-dyntable-invocation-generates)).
+//!
+//! Its simplest form is as follows:
 //! ```
 //! use dyntable::*;
 //!
 //! #[dyntable]
-//! trait Animal {
-//!     extern "C" fn eat_food(&mut self, amount: u32);
-//!     extern "C" fn is_full(&self) -> bool;
+//! trait MessageBuilder {
+//!     extern "C" fn build(&self) -> String;
 //! }
 //!
-//! struct Dog {
-//!     food_count: u32,
-//! }
+//! struct Greeter(&'static str);
 //!
-//! struct Cat {
-//!     picky: bool,
-//!     food_count: u32,
-//! }
-//!
-//! impl Animal for Dog {
-//!     extern "C" fn eat_food(&mut self, amount: u32) {
-//!         self.food_count += amount;
-//!     }
-//!
-//!     extern "C" fn is_full(&self) -> bool {
-//!         self.food_count > 200
+//! impl MessageBuilder for Greeter {
+//!     extern "C" fn build(&self) -> String {
+//!         format!("Hello {}!", self.0)
 //!     }
 //! }
 //!
-//! # // stub
-//! # fn random_chance() -> bool { true }
+//! let greeter = Greeter("World");
 //!
-//! impl Animal for Cat {
-//!     extern "C" fn eat_food(&mut self, amount: u32) {
-//!         if !self.picky || random_chance() {
-//!             self.food_count += amount;
-//!         }
-//!     }
+//! // move the greeter into a DynBox of MessageBuilder. This box can hold any
+//! // object safe MessageBuilder implementation.
+//! let greeter_box = DynBox::<dyn MessageBuilder>::new(greeter);
 //!
-//!     extern "C" fn is_full(&self) -> bool {
-//!         self.food_count > 100
-//!     }
-//! }
-//!
-//! fn main() {
-//!    let mut pets = [
-//!        DynBox::<dyn Animal>::new(Dog {
-//!            food_count: 10,
-//!        }),
-//!        DynBox::<dyn Animal>::new(Cat {
-//!            picky: true,
-//!            food_count: 30,
-//!        }),
-//!        DynBox::<dyn Animal>::new(Cat {
-//!            picky: false,
-//!            food_count: 0,
-//!        }),
-//!    ];
-//!
-//!    // feed all the pets until they are full
-//!    loop {
-//!        let mut all_full = true;
-//!
-//!        // feed all the pets
-//!        for pet in &mut pets {
-//!            if !pet.is_full() {
-//!                pet.eat_food(10);
-//!                all_full = false;
-//!            }
-//!        }
-//!
-//!        // if all pets have finished eating we are done.
-//!        if all_full { break; }
-//!    }
-//! }
+//! // methods implemented on a dyntrait are callable directly from the DynBox.
+//! assert_eq!(greeter_box.build(), "Hello World!");
 //! ```
+//!
+//! ## Trait Bounds / Supertraits
+//! Trait bounds can be specified for dyntable traits using normal trait syntax along
+//! with a special `dyn` entry in the where clause:
+//!
+//! ```
+//! # use dyntable::*;
+//! #[dyntable]
+//! trait Supertrait {
+//!     extern "C" fn call_supertrait(&self);
+//! }
+//!
+//! #[dyntable]
+//! trait Subtrait: Supertrait // Supertrait is specified as a bound on Subtrait
+//! where
+//!     // A dyn entry in the where clause tells dyntable that `Supertrait`
+//!     // is a dyntable bound.
+//!     dyn Supertrait:,
+//! {
+//!     extern "C" fn call_subtrait(&self);
+//! }
+//!
+//! struct MyStruct;
+//!
+//! impl Supertrait for MyStruct {
+//!     extern "C" fn call_supertrait(&self) {
+//!         println!("Hello from Supertrait!");
+//!     }
+//! }
+//!
+//! impl Subtrait for MyStruct {
+//!     extern "C" fn call_subtrait(&self) {
+//!         println!("Hello from Subtrait!");
+//!     }
+//! }
+//!
+//! let example = DynBox::<dyn Subtrait>::new(MyStruct);
+//!
+//! example.call_supertrait();
+//! example.call_subtrait();
+//! ```
+//! For more information on dyn bounds and when you need them, see
+//! [the relevant section of the `#[dyntable]` macro docs](dyntable#trait-bound-paths).
 //!
 //! # Crate Features
 //! - `allocator_api` - enable support for the unstable `allocator_api` stdlib feature
@@ -1065,7 +1079,7 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// #[dyntable]
 /// trait FluidContainer: Container
 /// where
-///    dyn Container:,
+///     dyn Container:,
 /// {}
 ///
 /// #[dyntable]
@@ -1082,6 +1096,51 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 ///     // Although it does not matter which path is used,
 ///     // specifying it more than once is an error.
 ///     dyn ConsumableContainer:,
+/// {}
+/// ```
+///
+/// Multilevel trait bounds can be handled by an additional dyn entry in
+/// the where clause:
+///
+/// ```
+/// # use dyntable::dyntable;
+/// # #[dyntable]
+/// # trait Container {}
+/// #
+/// # #[dyntable]
+/// # trait FluidContainer: Container
+/// # where
+/// #     dyn Container:,
+/// # {}
+/// #
+/// # #[dyntable]
+/// # trait ConsumableContainer: Container
+/// # where
+/// #     dyn Container:,
+/// # {}
+/// #
+/// # #[dyntable]
+/// # trait Bottle: FluidContainer + ConsumableContainer
+/// # where
+/// #    // The path to `Container` must be specified.
+/// #    dyn FluidContainer: Container,
+/// #    // Although it does not matter which path is used,
+/// #    // specifying it more than once is an error.
+/// #    dyn ConsumableContainer:,
+/// # {}
+/// #[dyntable]
+/// // Don't ask why it's fancy, I'm running out of ideas.
+/// trait FancyBottle: Bottle
+/// where
+///     // The paths to `FluidContainer` and `ConsumableContainer`
+///     // must be specified.
+///     dyn Bottle: FluidContainer + ConsumableContainer,
+///     // The path to `Container` must be specified.
+///     // Since `FluidContainer` is bounded by another dyn entry,
+///     // it is allowed to have an entry itself.
+///     dyn FluidContainer: Container,
+///     // The entry for `ConsumableContainer` may be skipped as it
+///     // is already specified in `Bottle`'s entry.
 /// {}
 /// ```
 ///
@@ -1222,6 +1281,25 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 ///   list. Removing a method is a backwards incompatible change.
 /// - All methods have the same ABI as previous versions. Method parameters and return
 ///   types must either match or share the same ABI.
+///
+/// # What a `#[dyntable]` invocation generates
+/// The `#[dyntable]` macro generates the following code:
+/// - A VTable
+/// - An implementation of [`VTable`] for the generated VTable.
+/// - Implementations of [`VTableRepr`] for `dyn YourTrait`, `dyn YourTrait + Send`,
+///   `dyn YourTrait + Sync` and `dyn YourTrait + Send + Sync`. These implementations
+///   allow using `dyn YourTrait` and friends in place of the trait VTable.
+/// - Implementations of [`SubTable`] for the generated VTable. Implementations will be
+///   generated for all bounded dyntraits, allowing their methods to be called on your trait.
+/// - A local copy of [`DynTrait`], implemented for `T: YourTrait`. This implementation
+///   provides the static VTable for types implementing your trait. The local implementation
+///   is applied to the real [`DynTrait`] type using type system hackery.
+///   (see `src/private.rs` for details)
+/// - Implementations of [`AssociatedDrop`] and [`AssociatedLayout`] for the generated
+///   vtable when the drop function and embedded layout are enabled.
+/// - An implementation of your trait for all types implementing [`AsDyn`] (dyntrait containers
+///   such as [`DynBox`] or [`DynRef`]) where `AsDyn::Repr: Subtable<YourTraitVTable>` (your trait
+///   and all traits bounded on your trait).
 ///
 /// [ref-obj-safety]: https://doc.rust-lang.org/reference/items/traits.html#object-safety
 pub use dyntable_macro::dyntable;
