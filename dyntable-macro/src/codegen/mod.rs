@@ -2,16 +2,7 @@
 
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, ToTokens};
-use syn::{
-	punctuated::Punctuated,
-	GenericParam,
-	Lifetime,
-	Token,
-	TraitBound,
-	Type,
-	TypeParamBound,
-	TypeReference,
-};
+use syn::{punctuated::Punctuated, GenericParam, Lifetime, Token, TraitBound, TypeParamBound};
 
 use crate::parse::{
 	DynTraitInfo,
@@ -209,37 +200,28 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			inputs,
 			output,
 		}) => Some({
-			// reborrow if a reference was returned, as it will be a pointer.
-			let reborrow = match output {
-				syn::ReturnType::Type(_, ty) => match ty.as_ref() {
-					Type::Reference(TypeReference {
-						and_token,
-						mutability,
-						..
-					}) => quote::quote! { #and_token #mutability * },
-					_ => TokenStream::new(),
-				},
-				_ => TokenStream::new(),
-			};
-
 			let (_, fn_ty_generics, fn_where_clause) = generics.split_for_impl();
 			let param_list = MethodParam::params_safe(inputs.iter());
 			let arg_list = MethodParam::idents_safe(inputs.iter());
 
 			let code = match receiver {
 				MethodReceiver::Reference(_) => quote::quote! {
-					#reborrow (::dyntable::SubTable::<
+					(::dyntable::SubTable::<
 						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
-					>::subtable(&*self.dyn_vtable()).#fn_ident)
-						(self.dyn_ptr(), #(#arg_list),*)
+					>::subtable(&*self.dyn_vtable()).#fn_ident)(
+						::dyntable::DynSelf::from_raw(self.dyn_ptr()),
+						#(#arg_list),*
+					)
 				},
 				MethodReceiver::Value(_) => quote::quote! {
 					// call the function, the function will consider the pointer
 					// to be by value
-					let __dyn_result = #reborrow (::dyntable::SubTable::<
+					let __dyn_result = (::dyntable::SubTable::<
 						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
-					>::subtable(&*self.dyn_vtable()).#fn_ident)
-						(self.dyn_ptr(), #(#arg_list),*);
+					>::subtable(&*self.dyn_vtable()).#fn_ident)(
+						self.dyn_ptr(),
+						#(#arg_list),*
+					);
 					// deallocate the pointer without dropping it
 					self.dyn_dealloc();
 					__dyn_result
@@ -258,7 +240,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 	quote::quote! {
 		#(#trait_attrs)*
-		#vis trait #ident #ty_generics #(: #trait_bounds)*
+		#vis trait #ident #impl_generics #(: #trait_bounds)*
 		#where_clause {
 			#(#trait_entries)*
 		}

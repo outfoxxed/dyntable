@@ -316,6 +316,31 @@ unsafe impl<V: VTableRepr + ?Sized> Sync for DynUnchecked<V> where
 {
 }
 
+/// Wrapper for the `self` parameter of vtable methods to bound
+/// return lifetimes.
+///
+/// This struct can be transmuted to and from a raw pointer to
+/// the self parameter.
+///
+/// # Notes
+/// This struct is an implementation detail used to bind output
+/// lifetimes of dyntrait methods. You should not need to use it directly.
+#[repr(transparent)]
+pub struct DynSelf<'lt> {
+	pub ptr: *mut c_void,
+	_marker: PhantomData<&'lt ()>,
+}
+
+impl DynSelf<'_> {
+	#[inline(always)]
+	pub const fn from_raw(ptr: *mut c_void) -> Self {
+		Self {
+			ptr,
+			_marker: PhantomData,
+		}
+	}
+}
+
 /// This trait implements the trait described by its `Repr`.
 ///
 /// # Safety
@@ -1152,8 +1177,9 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 ///     dyn BoundOfMyTrait1: BoundOfBound,
 ///     dyn BoundOfMyTrait2:,
 /// {
-///     extern "C" fn my_function1(&self);
-///     extern "C" fn my_function2(&self);
+///     extern "C" fn my_function(&self);
+///     extern "C" fn my_lifetime_function<'a>(&'a self) -> &'a ();
+///     extern "C" fn my_owned_function(self);
 /// }
 ///
 /// // MyTrait's VTable:
@@ -1161,16 +1187,25 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// #[repr(C)]
 /// struct VTableForMyTrait {
 ///     // drop and layout come first if enabled
+///
 ///     drop: unsafe extern "C" fn(*mut core::ffi::c_void),
 ///     layout: dyntable::alloc::MemoryLayout,
+///
 ///     // any bounded dyntable trait VTables follow
+///
 ///     bound1_vtable: <dyn BoundOfMyTrait1 as VTableRepr>::VTable,
 ///     // note that BoundOfBound does not have an entry, as it is contained
 ///     // in BoundOfMyTrait's VTable.
 ///     bound2_vtable: <dyn BoundOfMyTrait2 as VTableRepr>::VTable,
+///
 ///     // any member functions follow
-///     my_function1: extern "C" fn(*const core::ffi::c_void),
-///     my_function2: extern "C" fn(*const core::ffi::c_void),
+///
+///     // `DynSelf` can be transmuted to and from a reference or pointer to self.
+///     // It is an implementation detail used to bound output lifetimes.
+///     my_function: extern "C" fn(dyntable::DynSelf),
+///     my_lifetime_function: for<'a> extern "C" fn(dyntable::DynSelf<'a>) -> &'a (),
+///     // an owned self parameter does not use `DynSelf`.
+///     my_owned_function: extern "C" fn(*mut core::ffi::c_void),
 /// }
 /// # // this sanity check is at least better than nothing
 /// # use std::alloc::Layout;

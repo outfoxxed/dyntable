@@ -1,0 +1,32 @@
+error[E0309]: the parameter type `A` may not live long enough
+  --> tests/compile/fail/lifetime.rs:11:1
+   |
+11 | #[dyntable(relax_abi = true)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ...so that the type `A` will meet its required lifetime bounds...
+   |
+note: ...that is required by this bound
+  --> tests/compile/fail/lifetime.rs:14:5
+   |
+14 |     fn foo(&self) -> &'a A;
+   |        ^^^^^^^^^^^^^^^^^^^
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider adding an explicit lifetime bound...
+   |
+12 | trait UnboundedGeneric<'a, A: 'a> {
+   |                             ++++
+
+error[E0309]: the parameter type `A` may not live long enough
+  --> tests/compile/fail/lifetime.rs:12:7
+   |
+12 | trait UnboundedGeneric<'a, A> {
+   |       ^^^^^^^^^^^^^^^^^^^^^^^ ...so that the type `A` will meet its required lifetime bounds...
+   |
+note: ...that is required by this bound
+  --> tests/compile/fail/lifetime.rs:14:5
+   |
+14 |     fn foo(&self) -> &'a A;
+   |        ^^^^^^^^^^^^^^^^^^^
+help: consider adding an explicit lifetime bound...
+   |
+12 | trait UnboundedGeneric<'a, A: 'a> {
+   |                             ++++

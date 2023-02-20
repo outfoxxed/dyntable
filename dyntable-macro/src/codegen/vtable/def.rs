@@ -1,11 +1,13 @@
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{GenericParam, LifetimeDef, Type, TypeParam, TypePtr, TypeReference};
+use syn::{GenericParam, LifetimeDef, TypeParam};
 
 use crate::parse::{
 	DynTraitInfo,
 	MethodEntry,
 	MethodParam,
+	MethodReceiver,
+	ReceiverReference,
 	Subtable,
 	SubtableEntry,
 	VTableEntry,
@@ -25,7 +27,7 @@ pub fn gen_vtable(
 		..
 	}: &DynTraitInfo,
 ) -> TokenStream {
-	let (_, ty_generics, where_clause) = trait_generics.split_for_impl();
+	let (impl_generics, _, where_clause) = trait_generics.split_for_impl();
 	let repr = repr.as_repr();
 
 	let drop_abi = drop_abi.as_ref().map(|abi| abi.as_abi()).into_iter();
@@ -65,7 +67,7 @@ pub fn gen_vtable(
 	quote::quote! {
 		#[allow(non_snake_case)]
 		#repr
-		#vis struct #vtable_ident #ty_generics
+		#vis struct #vtable_ident #impl_generics
 		#where_clause {
 			#(#vis __drop: unsafe #drop_abi fn(*mut ::core::ffi::c_void),)*
 			// embed_layout is a marker and generates no code
@@ -101,45 +103,39 @@ fn gen_vtable_method(
 		..
 	}: &MethodEntry,
 ) -> TokenStream {
-	let self_ptr_type = receiver.pointer_type();
-
-	let inputs = inputs
-		.iter()
-		.map(|MethodParam { ty, .. }| strip_references(ty.clone()));
+	let inputs = inputs.iter().map(
+		|MethodParam { ty, .. }| ty, /*strip_references(ty.clone())*/
+	);
 
 	let output = match output {
 		syn::ReturnType::Default => None,
-		syn::ReturnType::Type(_, ty) => Some(strip_references(ty.as_ref().clone())),
+		syn::ReturnType::Type(_, ty) => Some(ty /*strip_references(ty.as_ref().clone())*/),
 	}
 	.into_iter();
 
+	let (for_tok, self_ptr) = match receiver {
+		MethodReceiver::Reference(ReceiverReference {
+			reference: (_, lt), ..
+		}) => (
+			match lt {
+				Some(lt) => quote::quote! { for<#lt> },
+				None => TokenStream::new(),
+			},
+			{
+				let lt = lt.into_iter();
+				quote::quote! { ::dyntable::DynSelf #(<#lt>)* }
+			},
+		),
+		MethodReceiver::Value(_) => (
+			TokenStream::new(),
+			quote::quote! { *mut ::core::ffi::c_void },
+		),
+	};
+
 	quote::quote! {
-		#vis #ident: #unsafety #abi #fn_token (
-			*#self_ptr_type ::core::ffi::c_void,
+		#vis #ident: #for_tok #unsafety #abi #fn_token (
+			#self_ptr,
 			#(#inputs),*
 		) #( -> #output)*
-	}
-}
-
-/// Replace toplevel references in a [`Type`] with raw pointers
-// TODO: reassess how nessesary this is and if it could be a
-// source of UB. At this point the main goal is to copy the old
-// macro's functionality (toplevel references to pointers).
-fn strip_references(ty: Type) -> Type {
-	match ty {
-		Type::Reference(TypeReference {
-			mutability, elem, ..
-		}) => Type::Ptr(TypePtr {
-			star_token: Default::default(),
-			const_token: match &mutability {
-				Some(_) => None,
-				None => Some(Default::default()),
-			},
-			mutability,
-			// TODO: add tests to check if nested references need
-			// to be removed (if they need to be removed at all, see above todo)
-			elem,
-		}),
-		other => other,
 	}
 }

@@ -184,20 +184,6 @@ pub struct ReceiverReference {
 	pub self_token: Token![self],
 }
 
-impl MethodReceiver {
-	/// Get the pointer type (mut / const) for this receiver.
-	///
-	/// # Note
-	/// An owned receiver will be `mut` due to it being passed
-	/// to the shim as a pointer.
-	pub fn pointer_type(&self) -> PointerType {
-		match self {
-			Self::Value(_) => PointerType::Mut(Default::default()),
-			Self::Reference(ReceiverReference { mutability, .. }) => PointerType::from(*mutability),
-		}
-	}
-}
-
 impl ToTokens for ReceiverReference {
 	fn to_tokens(&self, tokens: &mut TokenStream) {
 		self.reference.0.to_tokens(tokens);
