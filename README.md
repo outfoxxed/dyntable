@@ -25,24 +25,24 @@ upcasting. Implementing dyntable traits works exactly the same as normal rust tr
 A few other crates may suit your needs better than dyntable.
 Here's a simple feature matrix[^alternative-updates]
 
-| Feature                         | dyntable           | [thin_trait_object]   | [cglue]  | [abi_stable]      | [vtable] |
-|---------------------------------|--------------------|-----------------------|----------|-------------------|----------|
-| License                         | Apache-2.0         | MIT or Apache-2.0     | MIT      | MIT or Apache-2.0 | GPLv3    |
-| C FFI                           | ✓                  | ✓                     | ✓        | ✕                 | ✓        |
-| Rust FFI                        | ✓                  | ✓                     | ✓        | ✓                 | ✓        |
-| Pointer Type                    | Fat                | Thin                  | Fat      | Fat               | Fat      |
-| Trait Bounds / Supertraits      | ✓                  | Partial               | ✕        | Predefined Only   | ✕        |
-| Trait Generics                  | ✓                  | ✕                     | ✓        | ✓                 | ✕        |
-| Trait Lifetime Generics         | ✓                  | ✕                     | ✕        | ✓                 | ✕        |
-| Function Generics               | ✕                  | ✕                     | Panics   | ✕                 | ✕        |
-| Function Lifetime Generics      | ✓                  | ✕                     | ✓        | ✓                 | ✕        |
-| Upcasting                       | ✓                  | ✕                     | ✕        | ✕                 | ✕        |
-| Downcasting                     | ✕                  | ✕                     | ✕        | ✓                 | ✓        |
-| Constants                       | ✕                  | ✕                     | ✕        | ✕                 | ✓        |
-| Associated Types                | ✕                  | ✕                     | ✕        | ✓                 | ✕        |
-| Field Offsets                   | ✕                  | ✕                     | ✕        | ✕                 | ✓        |
-| Duplicate Trait Name (In Crate) | ✓                  | ✓                     | ✓        | ✓                 | ✕        |
-| Layout Validation               | ✕                  | ✕                     | Optional | ✓                 | ✕        |
+| Feature                         | dyntable           | [thin_trait_object]   | [cglue]            | [abi_stable]      | [vtable]           |
+|---------------------------------|--------------------|-----------------------|--------------------|-------------------|--------------------|
+| License                         | Apache-2.0         | MIT or Apache-2.0     | MIT                | MIT or Apache-2.0 | GPLv3              |
+| C FFI                           | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | :x:               | :heavy_check_mark: |
+| Rust FFI                        | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | :heavy_check_mark:| :heavy_check_mark: |
+| Pointer Type                    | Fat                | Thin                  | Fat                | Fat               | Fat                |
+| Trait Bounds / Supertraits      | :heavy_check_mark: | Partial               | :x:                | Predefined Only   | :x:                |
+| Trait Generics                  | :heavy_check_mark: | :x:                   | :heavy_check_mark: | :heavy_check_mark:| :x:                |
+| Trait Lifetime Generics         | :heavy_check_mark: | :x:                   | :x:                | :heavy_check_mark:| :x:                |
+| Function Generics               | :x:                | :x:                   | Panics             | :x:               | :x:                |
+| Function Lifetime Generics      | :heavy_check_mark: | :x:                   | :heavy_check_mark: | :heavy_check_mark:| :x:                |
+| Upcasting                       | :heavy_check_mark: | :x:                   | :x:                | :x:               | :x:                |
+| Downcasting                     | :x:                | :x:                   | :x:                | :heavy_check_mark:| :heavy_check_mark: |
+| Constants                       | :x:                | :x:                   | :x:                | :x:               | :heavy_check_mark: |
+| Associated Types                | :x:                | :x:                   | :x:                | :heavy_check_mark:| :x:                |
+| Field Offsets                   | :x:                | :x:                   | :x:                | :x:               | :heavy_check_mark: |
+| Duplicate Trait Name (In Crate) | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | :heavy_check_mark:| :x:                |
+| Layout Validation               | :x:                | :x:                   | Optional           | :heavy_check_mark:| :x:                |
 
 [thin_trait_object]: https://crates.io/crates/thin_trait_object
 [cglue]: https://crates.io/crates/cglue
