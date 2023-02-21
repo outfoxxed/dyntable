@@ -1,4 +1,4 @@
-//! FFI safe traits implemented as fat pointers for use with Rust to Rust and Rust to C FFI.
+//! Fully featured, Idiomatic, and FFI Safe traits.
 //!
 //! # Overview
 //! This crate is an alternative implementation of Rust trait objects that

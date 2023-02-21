@@ -2,7 +2,7 @@
 [![crates.io](https://img.shields.io/crates/v/dyntable?style=for-the-badge&logo=rust)](https://crates.io/crates/dyntable)
 [![docs.rs](https://img.shields.io/badge/docs.rs-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs)](https://docs.rs/crate/dyntable/latest)
 
-FFI Safe traits implemented as fat pointers.
+Fully featured, Idiomatic, and FFI Safe traits.
 
 # Overview
 This crate is an alternative implementation of Rust trait objects that
