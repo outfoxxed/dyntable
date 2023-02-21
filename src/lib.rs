@@ -1,4 +1,4 @@
-//! FFI safe traits implemented as fat pointers, for use with Rust to Rust and Rust to C FFI.
+//! FFI safe traits implemented as fat pointers for use with Rust to Rust and Rust to C FFI.
 //!
 //! # Overview
 //! This crate is an alternative implementation of Rust trait objects that
@@ -22,6 +22,7 @@
 //! generate all necessary machinery behind the scenes ([details](dyntable#what-a-dyntable-invocation-generates)).
 //!
 //! Its simplest form is as follows:
+//!
 //! ```
 //! use dyntable::*;
 //!
@@ -90,6 +91,12 @@
 //! ```
 //! For more information on dyn bounds and when you need them, see
 //! [the relevant section of the `#[dyntable]` macro docs](dyntable#trait-bound-paths).
+//!
+//! ## Macro Options
+//! Macro options can be found in the [`#[dyntable]` docs](dyntable#macro-options)
+//!
+//! ## FFI Usage
+//! Examples of usage with the C FFI can be found in `tests/ffi.rs` and `tests/ffi.c`
 //!
 //! # Crate Features
 //! - `allocator_api` - enable support for the unstable `allocator_api` stdlib feature
@@ -1172,27 +1179,33 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 ///
 /// # Macro Options
 /// - `repr` - The generated VTable's repr. `Rust` may be specified in addition
-///            to any repr permitted by the `#[repr(...)]` attribute.
-///            Defaults to `C`.
-/// - `relax_abi` - Relax the requirement that all methods must explicitly
-///                 specify their ABI. This restriction is in place to avoid
-///                 accidentally creating functions with the `Rust` ABI when
-///                 you want a FFI compatible abi, usually `C`, which is
-///                 dyntable's intended use case.
-///                 Defaults to `false`.
-/// - `drop` - Specify the existence and ABI of the VTable's `drop` function.
-///            Valid options are `none`, to remove the `drop` function, or
-///            any ABI permitted by the `extern "..."` specifier.
-///            This option is required for using the annotated trait in owned dyn
-///            containers such as a [`DynBox`].
-///            Defaults to `"C"`.
-/// - `embed_layout` - Embed the layout (size + align) of the implementing type
-///                    in the vtable.
-///                    This option is required for using the annotated trait in owned dyn
-///                    containers such as a [`DynBox`].
-///                    Defaults to `true`.
+///   to any repr permitted by the `#[repr(...)]` attribute.
+///
+///   Defaults to `C`.
+///
+/// - `relax_abi` - Relax the requirement that all methods must explicitly specify
+///   their ABI. This restriction is in place to avoid accidentally creating
+///   functions with the `Rust` ABI when you want a FFI compatible abi, usually `C`,
+///   which is dyntable's intended use case.
+///
+///   Defaults to `false`.
+///
+/// - `drop` - Specify the existence and ABI of the VTable's `drop` function. Valid
+///   options are `none`, to remove the `drop` function, or any ABI permitted by the
+///   `extern "..."` specifier. This option is required for using the annotated trait
+///   in owned dyn containers such as a [`DynBox`].
+///
+///   Defaults to `"C"`.
+///
+/// - `embed_layout` - Embed the layout (size + align) of the implementing type in the
+///   vtable. This option is required for using the annotated trait in owned dyn
+///   containers such as a [`DynBox`].
+///
+///   Defaults to `true`.
+///
 /// - `vtable` - Specify the name of the generated VTable.
-///              Defaults to `(your trait)VTable`.
+///
+///   Defaults to `(your trait)VTable`.
 ///
 /// All above options are optional. Below is an example of the `#[dyntable]`
 /// attribute with all options explicitly specified with default values:
