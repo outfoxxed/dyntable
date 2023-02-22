@@ -74,27 +74,12 @@ pub fn gen_impl(
 		VTableEntry::Method(method) => gen_method_entry(dyntrait, method),
 	});
 
-	let proxy_fns = dyntrait.entries.iter().filter_map(|entry| match entry {
-		VTableEntry::Method(
-			method @ MethodEntry {
-				receiver: MethodReceiver::Value(_),
-				..
-			},
-		) => Some(gen_self_proxy(dyntrait, method)),
-		_ => None,
-	});
-
-	let (drop_ident, drop_abi) = match drop_abi.as_ref() {
-		Some(drop_abi) => {
-			let ident = format_ident!("__DynDrop_{}", ident);
-			let abi = drop_abi.as_abi();
-
-			(
-				Some(ident).into_iter().collect::<Vec<_>>(),
-				Some(abi).into_iter(),
-			)
-		},
-		None => (Vec::new(), None.into_iter()),
+	let (drop_marker, drop_abi) = match drop_abi.as_ref() {
+		Some(drop_abi) => (
+			Some(TokenStream::new()).into_iter(),
+			Some(drop_abi.as_abi()).into_iter(),
+		),
+		None => (None.into_iter(), None.into_iter()),
 	};
 
 	let embed_layout = match embed_layout {
@@ -118,22 +103,21 @@ pub fn gen_impl(
 			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics =
 				&<Self as #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>>::VTABLE;
 			const VTABLE: #vtable_ident #ty_generics = #vtable_ident {
-				#(__drop: #drop_ident::<__DynTarget>,)*
+				#(__drop: {
+					unsafe #drop_abi fn thunk<T>(ptr: *mut ::core::ffi::c_void) {
+						::core::ptr::drop_in_place(ptr as *mut T)
+					}
+
+					thunk::<__DynTarget>
+				},)*
 				#(__layout: ::dyntable::alloc::MemoryLayout::new::<__DynTarget>(), #embed_layout)* // embed_layout is a marker
 				#(#entries,)*
 				__generics: ::core::marker::PhantomData,
 			};
 		}
 
-		#(#proxy_fns)*
-
 		// drop implementation
-		#(
-			#[allow(non_snake_case)]
-			unsafe #drop_abi fn #drop_ident<T>(ptr: *mut ::core::ffi::c_void) {
-				::core::ptr::drop_in_place(ptr as *mut T)
-			}
-
+		#(#drop_marker // marker, no code generated
 			unsafe impl #impl_generics ::dyntable::AssociatedDrop
 			for #vtable_ident #ty_generics
 			#where_clause {
@@ -157,52 +141,6 @@ pub fn gen_impl(
 	}
 }
 
-/// Generate a proxy function for a dyntrait method that takes
-/// self by value.
-fn gen_self_proxy(
-	DynTraitInfo {
-		dyntrait: TraitInfo { ident, .. },
-		generics: trait_generics,
-		..
-	}: &DynTraitInfo,
-	MethodEntry {
-		unsafety,
-		abi,
-		fn_token,
-		ident: fn_ident,
-		generics,
-		inputs,
-		output,
-		..
-	}: &MethodEntry,
-) -> TokenStream {
-	let proxy_fn_ident = format_ident!("__DynImpl_{}_{}", ident, fn_ident);
-	let (_, ty_generics, _) = trait_generics.split_for_impl();
-	let (_, _, fn_where_clause) = generics.split_for_impl();
-	let param_list = MethodParam::params_safe(inputs.iter());
-	let arg_list = MethodParam::idents_safe(inputs.iter());
-
-	let impl_generic_entries = trait_generics
-		.params
-		.clone()
-		.into_iter()
-		.collect::<Vec<_>>();
-
-	quote::quote! {
-		#[allow(non_snake_case)]
-		#unsafety #abi #fn_token #proxy_fn_ident <
-			#(#impl_generic_entries,)*
-			__DynSelf: #ident #ty_generics,
-		> (__dyn_self: *mut __DynSelf, #(#param_list),*) #output
-		#fn_where_clause {
-			<__DynSelf as #ident #ty_generics>::#fn_ident(
-				unsafe { __dyn_self.read() },
-				#(#arg_list),*
-			)
-		}
-	}
-}
-
 /// Generate a vtable entry for a solid base type
 fn gen_method_entry(
 	DynTraitInfo {
@@ -215,26 +153,19 @@ fn gen_method_entry(
 		abi,
 		fn_token,
 		ident: fn_ident,
+		generics,
 		receiver,
 		inputs,
 		output,
-		..
 	}: &MethodEntry,
 ) -> TokenStream {
-	let inputs = inputs.iter().map(|_| <Token![_]>::default());
-
-	let output = match output {
-		syn::ReturnType::Default => None,
-		syn::ReturnType::Type(..) => Some(<Token![_]>::default()),
-	}
-	.into_iter();
-
-	// functions that take self by value need a proxy function to
-	// convert from a pointer to an owned Self
 	let fn_path = match receiver {
 		MethodReceiver::Reference(_) => quote::quote! { __DynTarget::#fn_ident },
 		MethodReceiver::Value(_) => {
-			let fn_generics = trait_generics
+			// functions that take self by value need a proxy thunk to
+			// convert from a pointer to an owned Self
+
+			let call_generics = trait_generics
 				.params
 				.clone()
 				.into_iter()
@@ -247,10 +178,41 @@ fn gen_method_entry(
 				})
 				.collect::<Vec<_>>();
 
-			let fn_ident = format_ident!("__DynImpl_{}_{}", ident, fn_ident);
-			quote::quote! { #fn_ident::<#(#fn_generics,)* __DynTarget> }
+			let (_, ty_generics, _) = trait_generics.split_for_impl();
+			let (_, _, fn_where_clause) = generics.split_for_impl();
+			let param_list = MethodParam::params_safe(inputs.iter());
+			let arg_list = MethodParam::idents_safe(inputs.iter());
+
+			let impl_generic_entries = trait_generics
+				.params
+				.clone()
+				.into_iter()
+				.collect::<Vec<_>>();
+
+			quote::quote! {{
+				#unsafety #abi #fn_token thunk <
+					#(#impl_generic_entries,)*
+					__DynSelf: #ident #ty_generics,
+				> (__dyn_self: *mut __DynSelf, #(#param_list),*) #output
+				#fn_where_clause {
+					<__DynSelf as #ident #ty_generics>::#fn_ident(
+						unsafe { __dyn_self.read() },
+						#(#arg_list),*
+					)
+				}
+
+				thunk::<#(#call_generics,)* __DynTarget>
+			}}
 		},
 	};
+
+	let inputs = inputs.iter().map(|_| <Token![_]>::default());
+
+	let output = match output {
+		syn::ReturnType::Default => None,
+		syn::ReturnType::Type(..) => Some(<Token![_]>::default()),
+	}
+	.into_iter();
 
 	quote::quote! {
 		#fn_ident: unsafe {
