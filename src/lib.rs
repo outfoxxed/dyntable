@@ -419,9 +419,8 @@ impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
 	/// Casts a [`DynPtr`] to a [`DynRef`].
 	///
 	/// # Safety
-	/// The pointer `ptr` must be an owned dynptr to memory allocated
-	/// by the rust global allocator. It's data pointer and vtable pointer
-	/// must both live for the provided lifetime of the created reference.
+	/// The pointer `ptr` must be a non-null dynptr with both it's `ptr` and
+	/// `vtable` fields' lifetime matching or outliving `'a`
 	///
 	/// # Examples
 	/// Use a [`DynRef`] to call a function on a [`DynPtr`]:
@@ -495,6 +494,17 @@ impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
 	}
 }
 
+impl<'a, 'v, T, V> From<&'a T> for DynRef<'a, V>
+where
+	T: DynTrait<'v, V::VTable>,
+	V: VTableRepr + ?Sized,
+	V::VTable: 'v,
+{
+	fn from(value: &'a T) -> Self {
+		unsafe { Self::from_raw(DynPtr::new(value as *const _ as *mut T)) }
+	}
+}
+
 /// Reference to a dyntable Trait, equivalent to `&mut dyn Trait`.
 #[repr(transparent)]
 pub struct DynRefMut<'a, V: VTableRepr + ?Sized> {
@@ -520,9 +530,9 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 	/// Casts a [`DynPtr`] to a [`DynRefMut`].
 	///
 	/// # Safety
-	/// The pointer `ptr` must be an owned dynptr to memory allocated
-	/// by the rust global allocator. It's data pointer and vtable pointer
-	/// must both live for the provided lifetime of the created reference.
+	/// The pointer `ptr` must be a non-null dynptr with both it's `ptr` and
+	/// `vtable` fields' lifetime matching or outliving `'a`. The dynptr must
+	/// not be aliased.
 	///
 	/// # Examples
 	/// Use a [`DynRefMut`] to call a function on a [`DynPtr`]:
@@ -598,6 +608,17 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 		V::VTable: SubTable<U::VTable>,
 	{
 		unsafe { DynRefMut::from_raw(DynPtr::upcast(r.ptr)) }
+	}
+}
+
+impl<'a, 'v, T, V> From<&'a T> for DynRefMut<'a, V>
+where
+	T: DynTrait<'v, V::VTable>,
+	V: VTableRepr + ?Sized,
+	V::VTable: 'v,
+{
+	fn from(value: &'a T) -> Self {
+		unsafe { Self::from_raw(DynPtr::new(value as *const _ as *mut T)) }
 	}
 }
 
