@@ -216,7 +216,7 @@ fn gen_method_entry(
 
 	quote::quote! {
 		#fn_ident: unsafe {
-			::core::intrinsics::transmute(
+			::core::mem::transmute(
 				#fn_path as
 					#unsafety #abi #fn_token (
 						_,
