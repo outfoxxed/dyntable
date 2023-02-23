@@ -21,7 +21,7 @@ pub trait Deallocator {
 /// An implementation of `Allocator` can allocate a block of
 /// memory given its layout.
 pub trait Allocator: Deallocator {
-	/// Allocate a block of memory, given it's layout
+	/// Allocate a block of memory, given its layout
 	///
 	/// # Errors
 	/// An [`AllocError`] is returned if the allocator cannot

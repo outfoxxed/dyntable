@@ -42,7 +42,7 @@ where
 {}
 
 /// Inherit a dyn trait without explicitly specifying its bounds in
-/// it's dyn entry in the where clause
+/// its dyn entry in the where clause
 #[dyntable]
 trait MissingExplicitBoundInheritance: ImplementedTrait
 where

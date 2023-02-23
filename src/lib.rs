@@ -419,7 +419,7 @@ impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
 	/// Casts a [`DynPtr`] to a [`DynRef`].
 	///
 	/// # Safety
-	/// The pointer `ptr` must be a non-null dynptr with both it's `ptr` and
+	/// The pointer `ptr` must be a non-null dynptr with both its `ptr` and
 	/// `vtable` fields' lifetime matching or outliving `'a`
 	///
 	/// # Examples
@@ -530,7 +530,7 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 	/// Casts a [`DynPtr`] to a [`DynRefMut`].
 	///
 	/// # Safety
-	/// The pointer `ptr` must be a non-null dynptr with both it's `ptr` and
+	/// The pointer `ptr` must be a non-null dynptr with both its `ptr` and
 	/// `vtable` fields' lifetime matching or outliving `'a`. The dynptr must
 	/// not be aliased.
 	///
@@ -1157,7 +1157,7 @@ use alloc::{AllocError, Allocator, Deallocator, GlobalAllocator, MemoryLayout};
 /// #    dyn ConsumableContainer:,
 /// # {}
 /// #[dyntable]
-/// // Don't ask why it's fancy, I'm running out of ideas.
+/// // Don't ask why its fancy, I'm running out of ideas.
 /// trait FancyBottle: Bottle
 /// where
 ///     // The paths to `FluidContainer` and `ConsumableContainer`
