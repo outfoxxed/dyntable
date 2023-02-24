@@ -1,3 +1,6 @@
+#![cfg(feature = "alloc")]
+#![cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+
 use core::{
 	alloc::Layout,
 	ffi::c_void,

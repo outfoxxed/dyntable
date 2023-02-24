@@ -66,6 +66,7 @@ impl MemoryLayout {
 pub struct AllocError;
 
 #[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl std::error::Error for AllocError {}
 
 impl fmt::Display for AllocError {
@@ -91,13 +92,13 @@ impl From<MemoryLayout> for Layout {
 	}
 }
 
-#[cfg(feature = "allocator_api")]
-pub use std::alloc::Global as GlobalAllocator;
-#[cfg(not(feature = "allocator_api"))]
+#[cfg(all(not(doc), feature = "allocator_api"))]
+pub use std_alloc::alloc::Global as GlobalAllocator;
+#[cfg(any(doc, not(feature = "allocator_api")))]
 /// The global memory allocator
 pub struct GlobalAllocator;
 
-#[cfg(feature = "allocator_api")]
+#[cfg(all(not(doc), feature = "allocator_api"))]
 impl<T: std_alloc::alloc::Allocator> Allocator for T {
 	#[inline(always)]
 	fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
@@ -105,7 +106,7 @@ impl<T: std_alloc::alloc::Allocator> Allocator for T {
 	}
 }
 
-#[cfg(feature = "allocator_api")]
+#[cfg(all(not(doc), feature = "allocator_api"))]
 impl<T: std_alloc::alloc::Allocator> Deallocator for T {
 	#[inline(always)]
 	unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {
@@ -113,8 +114,22 @@ impl<T: std_alloc::alloc::Allocator> Deallocator for T {
 	}
 }
 
-#[cfg(not(feature = "allocator_api"))]
+#[cfg(any(doc, all(feature = "alloc", not(feature = "allocator_api"))))]
 impl Allocator for GlobalAllocator {
+	/// Allocate a block of memory, given its layout
+	///
+	/// # Errors
+	/// An [`AllocError`] is returned if the allocator cannot
+	/// allocate the specified memory block for any reason.
+	///
+	/// # Panics
+	/// If the global rust allocator cannot allocate the specified
+	/// memory block for any reason, this function will panic. To get
+	/// an `Err` instead of panicing, enable the crate feature `allocator_api`.
+	///
+	/// # Errors
+	/// While this function returns a result, it will never return an
+	/// [`AllocError`]. Instead it will panic.
 	#[inline(always)]
 	fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
 		unsafe {
@@ -126,7 +141,7 @@ impl Allocator for GlobalAllocator {
 	}
 }
 
-#[cfg(not(feature = "allocator_api"))]
+#[cfg(any(doc, all(feature = "alloc", not(feature = "allocator_api"))))]
 impl Deallocator for GlobalAllocator {
 	#[inline(always)]
 	unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {

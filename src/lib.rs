@@ -101,9 +101,11 @@
 //! # Crate Features
 //! - `allocator_api` - enable support for the unstable `allocator_api` stdlib feature
 
-#![no_std]
+#![cfg_attr(not(any(feature = "std", doc)), no_std)]
 #![cfg_attr(feature = "allocator_api", feature(allocator_api))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(feature = "alloc")]
 extern crate alloc as std_alloc;
 
 use core::{
@@ -120,6 +122,9 @@ pub mod __private;
 
 pub mod alloc;
 pub mod boxed;
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use boxed::DynBox;
 
 /// This trait provides an instance of the given VTable matching this
