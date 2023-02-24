@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+default = ["std"]
 allocator_api = []
+std = []
 
 [dependencies.dyntable-macro]
 path = "dyntable-macro"

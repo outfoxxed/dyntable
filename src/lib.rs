@@ -101,15 +101,23 @@
 //! # Crate Features
 //! - `allocator_api` - enable support for the unstable `allocator_api` stdlib feature
 
+#![no_std]
 #![cfg_attr(feature = "allocator_api", feature(allocator_api))]
 
-use std::{
-	alloc::{handle_alloc_error, Layout},
+extern crate alloc as std_alloc;
+
+use core::{
+	alloc::Layout,
 	ffi::c_void,
 	marker::PhantomData,
 	mem::{self, MaybeUninit},
 	ops::{Deref, DerefMut},
 	ptr::NonNull,
+};
+
+use std_alloc::{
+	alloc::handle_alloc_error,
+	boxed::Box,
 };
 
 /// Dyntable implementation details. You should not depend on these.

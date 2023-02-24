@@ -1,7 +1,7 @@
 //! Stand-in memory allocation types for the ones provided by
 //! the `allocator_api` rust unstable feature.
 
-use std::{alloc::Layout, error::Error, fmt, ptr::NonNull};
+use core::{alloc::Layout, fmt, ptr::NonNull};
 
 /// An implementation of `Deallocator` can deallocate a
 /// block of memory allocated in a compatible allocator
@@ -65,7 +65,8 @@ impl MemoryLayout {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct AllocError;
 
-impl Error for AllocError {}
+#[cfg(feature = "std")]
+impl std::error::Error for AllocError {}
 
 impl fmt::Display for AllocError {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -74,6 +75,7 @@ impl fmt::Display for AllocError {
 }
 
 impl From<Layout> for MemoryLayout {
+	#[inline(always)]
 	fn from(value: Layout) -> Self {
 		Self {
 			size: value.size(),
@@ -83,6 +85,7 @@ impl From<Layout> for MemoryLayout {
 }
 
 impl From<MemoryLayout> for Layout {
+	#[inline(always)]
 	fn from(value: MemoryLayout) -> Self {
 		unsafe { Layout::from_size_align_unchecked(value.size, value.align) }
 	}
@@ -96,6 +99,7 @@ pub struct GlobalAllocator;
 
 #[cfg(feature = "allocator_api")]
 impl<T: std::alloc::Allocator> Allocator for T {
+	#[inline(always)]
 	fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
 		<T as std::alloc::Allocator>::allocate(self, layout.into()).map_err(|_| AllocError)
 	}
@@ -103,6 +107,7 @@ impl<T: std::alloc::Allocator> Allocator for T {
 
 #[cfg(feature = "allocator_api")]
 impl<T: std::alloc::Allocator> Deallocator for T {
+	#[inline(always)]
 	unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {
 		<T as std::alloc::Allocator>::deallocate(self, ptr, layout.into());
 	}
@@ -110,10 +115,11 @@ impl<T: std::alloc::Allocator> Deallocator for T {
 
 #[cfg(not(feature = "allocator_api"))]
 impl Allocator for GlobalAllocator {
+	#[inline(always)]
 	fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
 		unsafe {
 			Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
-				std::alloc::alloc(layout.into()),
+				std_alloc::alloc::alloc(layout.into()),
 				0,
 			)))
 		}
@@ -122,7 +128,8 @@ impl Allocator for GlobalAllocator {
 
 #[cfg(not(feature = "allocator_api"))]
 impl Deallocator for GlobalAllocator {
+	#[inline(always)]
 	unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {
-		std::alloc::dealloc(ptr.as_ptr(), layout.into());
+		std_alloc::alloc::dealloc(ptr.as_ptr(), layout.into());
 	}
 }

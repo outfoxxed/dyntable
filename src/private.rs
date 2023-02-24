@@ -1,4 +1,4 @@
-use std::{ffi::c_void, marker::PhantomData, mem};
+use core::{ffi::c_void, marker::PhantomData, mem};
 
 use crate::{alloc::MemoryLayout, AssociatedDrop, AssociatedLayout, DynTrait, VTable};
 
