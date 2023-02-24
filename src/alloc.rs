@@ -98,18 +98,18 @@ pub use std::alloc::Global as GlobalAllocator;
 pub struct GlobalAllocator;
 
 #[cfg(feature = "allocator_api")]
-impl<T: std::alloc::Allocator> Allocator for T {
+impl<T: std_alloc::alloc::Allocator> Allocator for T {
 	#[inline(always)]
 	fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
-		<T as std::alloc::Allocator>::allocate(self, layout.into()).map_err(|_| AllocError)
+		<T as std_alloc::alloc::Allocator>::allocate(self, layout.into()).map_err(|_| AllocError)
 	}
 }
 
 #[cfg(feature = "allocator_api")]
-impl<T: std::alloc::Allocator> Deallocator for T {
+impl<T: std_alloc::alloc::Allocator> Deallocator for T {
 	#[inline(always)]
 	unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: MemoryLayout) {
-		<T as std::alloc::Allocator>::deallocate(self, ptr, layout.into());
+		<T as std_alloc::alloc::Allocator>::deallocate(self, ptr, layout.into());
 	}
 }
 
