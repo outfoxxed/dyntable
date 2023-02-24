@@ -15,3 +15,11 @@ path = "dyntable-macro"
 [dev-dependencies] # test dependencies
 trybuild = "^1"
 libloading = "^0.7"
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# document all features
+all-features = true
+# defines the configuration attribute `docsrs`
+rustdoc-args = ["--cfg", "docsrs"]
+
