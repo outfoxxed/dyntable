@@ -14,13 +14,21 @@ jobs:
         run: nix develop .# -c cargo fmt --check
       - name: check codegen formatting
         run: nix develop .# -c bash -c "cd dyntable-macro; cargo fmt --check"
-      - name: check default features
-        run: nix develop .#stable -c cargo check
-      - name: check allocator_api
-        run: nix develop .# -c cargo check --features allocator_api
-      - name: check codegen
+      - name: check features > none
+        run: nix develop .# -c cargo check --no-default-features
+      - name: check features > alloc
+        run: nix develop .# -c cargo check --no-default-features --features alloc
+      - name: check features > std
+        run: nix develop .# -c cargo check --no-default-features --features std
+      - name: check features > allocator_api
+        run: nix develop .# -c cargo check --no-default-features --features allocator_api
+      - name: check features > allocator_api, alloc
+        run: nix develop .# -c cargo check --no-default-features --features allocator_api --features alloc
+      - name: check features > allocator_api, std
+        run: nix develop .# -c cargo check --no-default-features --features allocator_api --features std
+      - name: check macro crate
         run: nix develop .# -c cargo check --package dyntable-macro
-      - name: run stable tests
+      - name: run tests
         run: nix develop .#stable -c cargo test
-      - name: run tests under miri
+      - name: run miri tests
         run: nix develop .# -c cargo miri test
