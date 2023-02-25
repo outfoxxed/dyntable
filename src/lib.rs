@@ -98,8 +98,20 @@
 //! ## FFI Usage
 //! Examples of usage with the C FFI can be found in `tests/ffi.rs` and `tests/ffi.c`
 //!
-//! # Crate Features
-//! - `allocator_api` - enable support for the unstable `allocator_api` stdlib feature
+//! # Default Features
+//!
+//! ### `std`
+//! Enables the `alloc` feature and implements [`std::error::Error`]
+//! for [`AllocError`](alloc::AllocError).
+//!
+//! ### `alloc`
+//! Enables owning containers ([`DynBox`]) that require allocation.
+//!
+//! ## Optional Features
+//!
+//! ### `allocator_api`
+//! Enables support for the unstable `allocator_api` stdlib feature. This
+//! also makes the global allocator failable.
 
 #![cfg_attr(not(any(feature = "std", doc)), no_std)]
 #![cfg_attr(feature = "allocator_api", feature(allocator_api))]
