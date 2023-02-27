@@ -1,19 +1,25 @@
 use proc_macro2::{Span, TokenStream};
-use quote::ToTokens;
+use quote::{format_ident, ToTokens};
 use syn::{
 	parse::ParseStream,
 	punctuated::Punctuated,
 	token,
 	Attribute,
+	ConstParam,
+	GenericParam,
 	Generics,
 	Ident,
 	Lifetime,
+	LifetimeDef,
 	LitStr,
 	Path,
 	ReturnType,
 	Token,
+	TraitItemType,
 	Type,
+	TypeParam,
 	TypeParamBound,
+	TypePath,
 	Visibility,
 };
 
@@ -31,7 +37,6 @@ pub struct DynTraitInfo {
 	pub drop: Option<Abi>,
 	pub relax_abi: bool,
 	pub embed_layout: bool,
-	pub generics: Generics,
 	pub entries: Vec<VTableEntry>,
 }
 
@@ -39,6 +44,7 @@ pub struct DynTraitInfo {
 pub struct VTableInfo {
 	pub repr: Abi,
 	pub name: Ident,
+	pub generics: Generics,
 }
 
 #[derive(Debug)]
@@ -48,6 +54,9 @@ pub struct TraitInfo {
 	pub trait_token: Token![trait],
 	pub colon_token: Option<Token![:]>,
 	pub supertraits: Punctuated<TypeParamBound, Token![+]>,
+	pub generics: Generics,
+	pub vtable_ty_generics: VTableTraitTyGenerics,
+	pub associated_types: Vec<TraitItemType>,
 	pub brace_token: token::Brace,
 }
 
@@ -303,6 +312,10 @@ impl DynTraitInfo {
 					},
 					trait_body.ident.span(),
 				),
+				generics: make_vtable_generics(
+					trait_body.generics.clone(),
+					trait_body.associated_types.clone(),
+				),
 			},
 			dyntrait: TraitInfo {
 				attrs: trait_body.attrs,
@@ -310,12 +323,17 @@ impl DynTraitInfo {
 				trait_token: trait_body.trait_token,
 				colon_token: trait_body.colon_token,
 				supertraits: trait_body.supertraits,
+				vtable_ty_generics: make_trait_vtable_ty_generics(
+					trait_body.generics.clone(),
+					trait_body.associated_types.clone(),
+				),
+				generics: trait_body.generics,
+				associated_types: trait_body.associated_types,
 				brace_token: trait_body.brace_token,
 			},
 			drop: attr_options.drop,
 			relax_abi: attr_options.relax_abi,
 			embed_layout: attr_options.embed_layout,
-			generics: trait_body.generics,
 			entries: trait_body
 				.subtables
 				.into_iter()
@@ -363,6 +381,82 @@ impl Subtable {
 			});
 
 			subtable.flatten_into_child_graph(subtables);
+		}
+	}
+}
+
+/// Create a generics structure for VTables that includes associated types.
+pub fn make_vtable_generics(
+	mut generics: Generics,
+	associated_types: Vec<TraitItemType>,
+) -> Generics {
+	for associated in associated_types {
+		generics.params.push(GenericParam::Type(TypeParam {
+			attrs: Vec::new(),
+			ident: format_ident!("__DynAssociated_{}", associated.ident),
+			colon_token: associated.colon_token,
+			bounds: associated.bounds,
+			eq_token: None,
+			default: None,
+		}));
+	}
+
+	generics
+}
+
+/// Create a generics structure for trait usages that includes assocaited
+/// types and their vtable idents.
+pub fn make_trait_vtable_ty_generics(
+	generics: Generics,
+	associated_types: Vec<TraitItemType>,
+) -> VTableTraitTyGenerics {
+	let mut params = generics
+		.params
+		.into_iter()
+		.map(|param| match param {
+			GenericParam::Type(TypeParam { ident, .. })
+			| GenericParam::Const(ConstParam { ident, .. }) => GenericParam::Type(TypeParam {
+				attrs: Vec::new(),
+				ident,
+				colon_token: None,
+				bounds: Punctuated::new(),
+				eq_token: None,
+				default: None,
+			}),
+			GenericParam::Lifetime(param) => GenericParam::Lifetime(LifetimeDef {
+				attrs: Vec::new(),
+				lifetime: param.lifetime,
+				colon_token: None,
+				bounds: Punctuated::new(),
+			}),
+		})
+		.collect::<Punctuated<_, Token![,]>>();
+
+	for associated in associated_types {
+		params.push(GenericParam::Type(TypeParam {
+			attrs: Vec::new(),
+			colon_token: None,
+			bounds: Punctuated::new(),
+			eq_token: Some(Default::default()),
+			default: Some(Type::Path(TypePath {
+				qself: None,
+				path: Path::from(format_ident!("__DynAssociated_{}", associated.ident)),
+			})),
+			ident: associated.ident,
+		}));
+	}
+
+	VTableTraitTyGenerics(params)
+}
+
+#[derive(Debug)]
+pub struct VTableTraitTyGenerics(Punctuated<GenericParam, Token![,]>);
+
+impl ToTokens for VTableTraitTyGenerics {
+	fn to_tokens(&self, tokens: &mut TokenStream) {
+		if !self.0.is_empty() {
+			let params = &self.0;
+			quote::quote! { <#params> }.to_tokens(tokens);
 		}
 	}
 }

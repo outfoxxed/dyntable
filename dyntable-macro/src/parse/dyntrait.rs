@@ -26,6 +26,7 @@ use syn::{
 	TraitBound,
 	TraitItem,
 	TraitItemMethod,
+	TraitItemType,
 	TypeParamBound,
 	Visibility,
 };
@@ -43,6 +44,7 @@ pub struct DynTraitBody {
 	pub trait_token: Token![trait],
 	pub ident: Ident,
 	pub generics: Generics,
+	pub associated_types: Vec<TraitItemType>,
 	pub colon_token: Option<Token![:]>,
 	pub supertraits: Punctuated<TypeParamBound, Token![+]>,
 	pub subtables: Vec<SubtableEntry>,
@@ -113,17 +115,19 @@ impl Parse for DynTraitBody {
 				.collect::<syn::Result<Vec<_>>>()?
 		};
 
-		let methods = dyntrait
-			.items
-			.into_iter()
-			.map(|item| match item {
-				TraitItem::Method(TraitItemMethod { sig, .. }) => Ok(MethodEntry::try_from(sig)?),
-				item => Err(syn::Error::new_spanned(
-					item,
-					"only method defintions are allowed in #[dyntable] annotated traits",
-				)),
-			})
-			.collect::<syn::Result<Vec<_>>>()?;
+		let mut methods = Vec::<MethodEntry>::new();
+		let mut associated_types = Vec::<TraitItemType>::new();
+
+		for item in dyntrait.items {
+			match item {
+				TraitItem::Type(item) => associated_types.push(item),
+				TraitItem::Method(TraitItemMethod { sig, .. }) => methods.push(MethodEntry::try_from(sig)?),
+
+				TraitItem::Const(entry) => return Err(syn::Error::new_spanned(entry, "associated constants are not supported in #[dyntable] traits")),
+				TraitItem::Macro(entry) => return Err(syn::Error::new_spanned(entry, "macro invocations are not supported for directly creating entries in #[dyntable] traits")),
+				entry => return Err(syn::Error::new_spanned(entry, "unknown entry")),
+			}
+		}
 
 		Ok(Self {
 			attrs: dyntrait.attrs,
@@ -137,6 +141,7 @@ impl Parse for DynTraitBody {
 			subtables: subtable_entries,
 			brace_token: dyntrait.brace_token,
 			methods,
+			associated_types,
 		})
 	}
 }

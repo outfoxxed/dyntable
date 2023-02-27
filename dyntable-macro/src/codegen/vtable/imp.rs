@@ -1,7 +1,17 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, ToTokens};
-use syn::{ConstParam, GenericParam, Lifetime, LifetimeDef, Token, TypeParam, TypeParamBound};
+use syn::{
+	ConstParam,
+	GenericParam,
+	Lifetime,
+	LifetimeDef,
+	ReturnType,
+	Token,
+	TypeParam,
+	TypeParamBound,
+};
 
+use super::def::{fix_vtable_associated_types, visit_type_paths};
 use crate::parse::{
 	DynTraitInfo,
 	MethodEntry,
@@ -16,21 +26,25 @@ use crate::parse::{
 
 pub fn gen_impl(
 	dyntrait @ DynTraitInfo {
-		dyntrait: TraitInfo { ident, .. },
-		vtable: VTableInfo {
-			name: vtable_ident, ..
+		dyntrait: TraitInfo {
+			ident,
+			vtable_ty_generics: trait_ty_generics,
+			..
 		},
-		generics: trait_generics,
+		vtable: VTableInfo {
+			name: vtable_ident,
+			generics: vtable_generics,
+			..
+		},
 		drop: drop_abi,
 		embed_layout,
 		..
 	}: &DynTraitInfo,
 ) -> TokenStream {
 	let proxy_trait = format_ident!("__DynTrait_{}", dyntrait.dyntrait.ident);
-	let (impl_generics, ty_generics, where_clause) = trait_generics.split_for_impl();
+	let (impl_generics, ty_generics, where_clause) = vtable_generics.split_for_impl();
 
-	let impl_vt_generic_entries = dyntrait
-		.generics
+	let impl_vt_generic_entries = vtable_generics
 		.params
 		.clone()
 		.into_iter()
@@ -98,7 +112,7 @@ pub fn gen_impl(
 		for __DynTarget
 		where
 			#(#where_predicates,)*
-			__DynTarget: #ident #ty_generics,
+			__DynTarget: #ident #trait_ty_generics,
 		{
 			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics =
 				&<Self as #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>>::VTABLE;
@@ -144,8 +158,15 @@ pub fn gen_impl(
 /// Generate a vtable entry for a solid base type
 fn gen_method_entry(
 	DynTraitInfo {
-		dyntrait: TraitInfo { ident, .. },
-		generics: trait_generics,
+		dyntrait: TraitInfo {
+			ident,
+			generics: trait_generics,
+			..
+		},
+		vtable: VTableInfo {
+			generics: vtable_generics,
+			..
+		},
 		..
 	}: &DynTraitInfo,
 	MethodEntry {
@@ -159,13 +180,42 @@ fn gen_method_entry(
 		output,
 	}: &MethodEntry,
 ) -> TokenStream {
+	let output = match output {
+		ReturnType::Default => ReturnType::Default,
+		ReturnType::Type(arrow, ty) => ReturnType::Type(*arrow, {
+			let mut ty = ty.clone();
+			visit_type_paths(&mut ty, &mut fix_vtable_associated_types);
+			ty
+		}),
+	};
+
+	let inputs = inputs
+		.iter()
+		.map(
+			|MethodParam {
+			     ident,
+			     colon_token,
+			     ty,
+			 }| {
+				let mut ty = ty.clone();
+				visit_type_paths(&mut ty, &mut fix_vtable_associated_types);
+
+				MethodParam {
+					ident: ident.clone(),
+					colon_token: colon_token.clone(),
+					ty,
+				}
+			},
+		)
+		.collect::<Vec<_>>();
+
 	let fn_path = match receiver {
 		MethodReceiver::Reference(_) => quote::quote! { __DynTarget::#fn_ident },
 		MethodReceiver::Value(_) => {
 			// functions that take self by value need a proxy thunk to
 			// convert from a pointer to an owned Self
 
-			let call_generics = trait_generics
+			let call_generics = vtable_generics
 				.params
 				.clone()
 				.into_iter()
@@ -183,7 +233,7 @@ fn gen_method_entry(
 			let param_list = MethodParam::params_safe(inputs.iter());
 			let arg_list = MethodParam::idents_safe(inputs.iter());
 
-			let impl_generic_entries = trait_generics
+			let impl_generic_entries = vtable_generics
 				.params
 				.clone()
 				.into_iter()

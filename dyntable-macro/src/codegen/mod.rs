@@ -23,13 +23,17 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let vis = &dyntrait.vis;
 	let ident = &dyntrait.dyntrait.ident;
 	let trait_attrs = &dyntrait.dyntrait.attrs;
+	let type_entries = &dyntrait.dyntrait.associated_types;
 	let proxy_trait = format_ident!("__DynTrait_{}", dyntrait.dyntrait.ident);
-	let (impl_generics, ty_generics, where_clause) = dyntrait.generics.split_for_impl();
+	let (impl_generics, ty_generics, where_clause) = dyntrait.dyntrait.generics.split_for_impl();
+	let (vt_impl_generics, vt_ty_generics, _) = dyntrait.vtable.generics.split_for_impl();
+	let trait_vt_ty_generics = &dyntrait.dyntrait.vtable_ty_generics;
 
 	let vtable_def = vtable::gen_vtable(dyntrait);
 	let vtable_impl = vtable::gen_impl(dyntrait);
 
 	let impl_generic_entries = dyntrait
+		.vtable
 		.generics
 		.params
 		.clone()
@@ -37,6 +41,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		.collect::<Vec<_>>();
 
 	let impl_vt_generic_entries = dyntrait
+		.vtable
 		.generics
 		.params
 		.clone()
@@ -201,6 +206,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			output,
 		}) => Some({
 			let (_, fn_ty_generics, fn_where_clause) = generics.split_for_impl();
+
 			let param_list = MethodParam::params_safe(inputs.iter());
 			let arg_list = MethodParam::idents_safe(inputs.iter());
 
@@ -242,38 +248,39 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		#(#trait_attrs)*
 		#vis trait #ident #impl_generics #(: #trait_bounds)*
 		#where_clause {
+			#(#type_entries)*
 			#(#trait_entries)*
 		}
 
 		#vtable_def
 
 		#vtable_bound_trait
-		unsafe impl #impl_generics ::dyntable::VTable for #vtable_ident #ty_generics
+		unsafe impl #vt_impl_generics ::dyntable::VTable for #vtable_ident #vt_ty_generics
 		#where_clause {
 			type Bounds = dyn #vtable_bounds;
 		}
 
-		impl #impl_generics ::dyntable::VTableRepr for dyn #ident #ty_generics
+		impl #vt_impl_generics ::dyntable::VTableRepr for dyn #ident #trait_vt_ty_generics
 		#where_clause {
-			type VTable = #vtable_ident #ty_generics;
+			type VTable = #vtable_ident #vt_ty_generics;
 		}
 
-		impl #impl_generics ::dyntable::VTableRepr
-		for dyn #ident #ty_generics + ::core::marker::Send
+		impl #vt_impl_generics ::dyntable::VTableRepr
+		for dyn #ident #trait_vt_ty_generics + ::core::marker::Send
 		#where_clause {
-			type VTable = ::dyntable::__private::SendVTable<#vtable_ident #ty_generics>;
+			type VTable = ::dyntable::__private::SendVTable<#vtable_ident #vt_ty_generics>;
 		}
 
-		impl #impl_generics ::dyntable::VTableRepr
-		for dyn #ident #ty_generics + ::core::marker::Sync
+		impl #vt_impl_generics ::dyntable::VTableRepr
+		for dyn #ident #trait_vt_ty_generics + ::core::marker::Sync
 		#where_clause {
-			type VTable = ::dyntable::__private::SyncVTable<#vtable_ident #ty_generics>;
+			type VTable = ::dyntable::__private::SyncVTable<#vtable_ident #vt_ty_generics>;
 		}
 
-		impl #impl_generics ::dyntable::VTableRepr
-		for dyn #ident #ty_generics + ::core::marker::Send + ::core::marker::Sync
+		impl #vt_impl_generics ::dyntable::VTableRepr
+		for dyn #ident #trait_vt_ty_generics + ::core::marker::Send + ::core::marker::Sync
 		#where_clause {
-			type VTable = ::dyntable::__private::SendSyncVTable<#vtable_ident #ty_generics>;
+			type VTable = ::dyntable::__private::SendSyncVTable<#vtable_ident #vt_ty_generics>;
 		}
 
 		#(#subtable_impls)*
@@ -288,14 +295,14 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			'__dyn_vtable,
 			#(#impl_vt_generic_entries,)*
 			__DynTrait,
-		> ::dyntable::__private::DynTraitProxy<'__dyn_vtable, #vtable_ident #ty_generics>
-		for ::dyntable::__private::DynImplTarget<__DynTrait, #vtable_ident #ty_generics>
+		> ::dyntable::__private::DynTraitProxy<'__dyn_vtable, #vtable_ident #vt_ty_generics>
+		for ::dyntable::__private::DynImplTarget<__DynTrait, #vtable_ident #vt_ty_generics>
 		where
 			#(#where_predicates,)*
-			__DynTrait: #proxy_trait<'__dyn_vtable, #vtable_ident #ty_generics>,
+			__DynTrait: #proxy_trait<'__dyn_vtable, #vtable_ident #vt_ty_generics>,
 		{
-			const VTABLE: #vtable_ident #ty_generics = __DynTrait::VTABLE;
-			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #ty_generics = __DynTrait::STATIC_VTABLE;
+			const VTABLE: #vtable_ident #vt_ty_generics = __DynTrait::VTABLE;
+			const STATIC_VTABLE: &'__dyn_vtable #vtable_ident #vt_ty_generics = __DynTrait::STATIC_VTABLE;
 		}
 
 		#vtable_impl
@@ -308,7 +315,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			#(#where_predicates,)*
 			__AsDyn: ::dyntable::AsDyn #(+ #as_dyn_bounds)*,
 			<__AsDyn::Repr as ::dyntable::VTableRepr>::VTable:
-				::dyntable::SubTable<#vtable_ident #ty_generics>
+				::dyntable::SubTable<#vtable_ident #vt_ty_generics>
 				#(+ ::dyntable::SubTable<
 					<(dyn #subtable_paths + 'static) as ::dyntable::VTableRepr>::VTable
 				>)*,

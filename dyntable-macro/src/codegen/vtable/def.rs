@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
-use quote::ToTokens;
-use syn::{punctuated::Punctuated, GenericParam, LifetimeDef, Token, TypeParam};
+use quote::{format_ident, ToTokens};
+use syn::{punctuated::Punctuated, GenericParam, LifetimeDef, Path, Token, Type, TypeParam};
 
 use crate::parse::{
 	DynTraitInfo,
@@ -20,14 +20,14 @@ pub fn gen_vtable(
 		vtable: VTableInfo {
 			repr,
 			name: vtable_ident,
+			generics,
 		},
-		generics: trait_generics,
 		drop: drop_abi,
 		embed_layout,
 		..
 	}: &DynTraitInfo,
 ) -> TokenStream {
-	let (impl_generics, _, where_clause) = trait_generics.split_for_impl();
+	let (impl_generics, _, where_clause) = generics.split_for_impl();
 	let repr = repr.as_repr();
 
 	let drop_abi = drop_abi.as_ref().map(|abi| abi.as_abi()).into_iter();
@@ -45,7 +45,7 @@ pub fn gen_vtable(
 	.collect::<Vec<_>>();
 
 	let vtable_phantom_generics = {
-		let generics = trait_generics
+		let generics = generics
 			.params
 			.iter()
 			.filter_map(|entry| match entry {
@@ -103,15 +103,20 @@ fn gen_vtable_method(
 		output,
 	}: &MethodEntry,
 ) -> TokenStream {
-	let inputs = inputs.iter().map(
-		|MethodParam { ty, .. }| ty, /*strip_references(ty.clone())*/
-	);
+	let inputs = inputs.iter().map(|MethodParam { ty, .. }| {
+		let mut ty = ty.clone();
+		visit_type_paths(&mut ty, &mut fix_vtable_associated_types);
+		ty
+	});
 
 	let output = match output {
-		syn::ReturnType::Default => None,
-		syn::ReturnType::Type(_, ty) => Some(ty /*strip_references(ty.as_ref().clone())*/),
-	}
-	.into_iter();
+		syn::ReturnType::Default => syn::ReturnType::Default,
+		syn::ReturnType::Type(arrow, ty) => syn::ReturnType::Type(*arrow, {
+			let mut ty = ty.clone();
+			visit_type_paths(&mut ty, &mut fix_vtable_associated_types);
+			ty
+		}),
+	};
 
 	let self_ptr = match receiver {
 		MethodReceiver::Reference(ReceiverReference {
@@ -149,6 +154,84 @@ fn gen_vtable_method(
 		#vis #ident: #for_tok #unsafety #abi #fn_token (
 			#self_ptr,
 			#(#inputs),*
-		) #( -> #output)*
+		) #output
 	}
+}
+
+pub fn visit_type_paths(ty: &mut Type, visit: &mut impl FnMut(&mut Path)) {
+	use syn::{
+		ReturnType,
+		TraitBound,
+		TypeArray,
+		TypeBareFn,
+		TypeGroup,
+		TypeImplTrait,
+		TypeParamBound,
+		TypeParen,
+		TypePath,
+		TypePtr,
+		TypeReference,
+		TypeSlice,
+		TypeTraitObject,
+		TypeTuple,
+	};
+
+	match ty {
+		Type::Array(TypeArray { elem, .. }) => visit_type_paths(elem, visit),
+		Type::BareFn(TypeBareFn { inputs, output, .. }) => {
+			for input in inputs {
+				visit_type_paths(&mut input.ty, visit)
+			}
+
+			if let ReturnType::Type(_, ty) = output {
+				visit_type_paths(ty, visit)
+			}
+		},
+		Type::Group(TypeGroup { elem, .. }) => visit_type_paths(elem, visit),
+		Type::ImplTrait(TypeImplTrait { bounds, .. }) => {
+			for bound in bounds {
+				if let TypeParamBound::Trait(TraitBound { path, .. }) = bound {
+					visit(path);
+				}
+			}
+		},
+		Type::Macro(_) => {}, // macro args are not checked
+		Type::Paren(TypeParen { elem, .. }) => visit_type_paths(elem, visit),
+		Type::Path(TypePath { path, .. }) => visit(path),
+		Type::Ptr(TypePtr { elem, .. }) => visit_type_paths(elem, visit),
+		Type::Reference(TypeReference { elem, .. }) => visit_type_paths(elem, visit),
+		Type::Slice(TypeSlice { elem, .. }) => visit_type_paths(elem, visit),
+		Type::TraitObject(TypeTraitObject { bounds, .. }) => {
+			for bound in bounds {
+				if let TypeParamBound::Trait(TraitBound { path, .. }) = bound {
+					visit(path);
+				}
+			}
+		},
+		Type::Tuple(TypeTuple { elems, .. }) => {
+			for elem in elems {
+				visit_type_paths(elem, visit);
+			}
+		},
+		_ => {},
+	}
+}
+
+pub fn fix_vtable_associated_types(path: &mut Path) {
+	if path.leading_colon.is_some() {
+		return
+	}
+
+	let mut iter = path.segments.iter_mut();
+	let Some(self_tok) = iter.next() else { return };
+	if self_tok.ident != "Self" || !self_tok.arguments.is_empty() {
+		return
+	}
+
+	let Some(associated) = iter.next() else { return };
+	if !associated.arguments.is_empty() {
+		return
+	}
+
+	*path = Path::from(format_ident!("__DynAssociated_{}", associated.ident));
 }
