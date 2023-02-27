@@ -1,3 +1,9 @@
+error: lifetime bounds cannot be specified for function lifetime generics in #[dyntable] traits
+  --> tests/compile/fail/lifetime.rs:20:15
+   |
+20 |     fn foo<'a, 'b: 'a>(&'b self, a: &'a A) -> &'a A;
+   |                  ^^^^
+
 error[E0309]: the parameter type `A` may not live long enough
   --> tests/compile/fail/lifetime.rs:11:1
    |

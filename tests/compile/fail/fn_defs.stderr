@@ -1,0 +1,12 @@
+error: type generics cannot be specified for functions in #[dyntable] traits
+ --> tests/compile/fail/fn_defs.rs:8:9
+  |
+8 |     fn foo<T>(&self, t: T);
+  |            ^
+
+error: where clauses cannot be specified for functions in #[dyntable] traits
+  --> tests/compile/fail/fn_defs.rs:15:2
+   |
+15 | /     where
+16 | |         'a: 'a;
+   | |______________^

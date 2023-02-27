@@ -13,3 +13,9 @@ trait UnboundedGeneric<'a, A> {
 	// `A` should be bounded by `'a`
 	fn foo(&self) -> &'a A;
 }
+
+#[dyntable(relax_abi = true)]
+trait BoundedLifetime {
+	// bounded fn generic lifetimes are disallowed
+	fn foo<'a, 'b: 'a>(&'b self, a: &'a A) -> &'a A;
+}

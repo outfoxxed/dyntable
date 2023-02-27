@@ -16,6 +16,12 @@ trait SelfLTTrait<T> {
 }
 
 #[dyntable(relax_abi = true)]
+trait PassthroughLTTrait<'s, T> {
+	fn pass_t<'a>(&self, x: &'a T) -> &'a T;
+	fn pass_lt_struct<'a>(&self, x: LifetimeStruct<'a>) -> LifetimeStruct<'a>;
+}
+
+#[dyntable(relax_abi = true)]
 trait BaseLTTrait<'a, A: 'a> {
 	fn base_longref(&self) -> &'a A;
 	fn take_longref(self) -> &'a A;

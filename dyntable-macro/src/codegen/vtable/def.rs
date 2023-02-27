@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{GenericParam, LifetimeDef, TypeParam};
+use syn::{punctuated::Punctuated, GenericParam, LifetimeDef, Token, TypeParam};
 
 use crate::parse::{
 	DynTraitInfo,
@@ -97,10 +97,10 @@ fn gen_vtable_method(
 		abi,
 		fn_token,
 		ident,
+		generics,
 		receiver,
 		inputs,
 		output,
-		..
 	}: &MethodEntry,
 ) -> TokenStream {
 	let inputs = inputs.iter().map(
@@ -113,23 +113,36 @@ fn gen_vtable_method(
 	}
 	.into_iter();
 
-	let (for_tok, self_ptr) = match receiver {
+	let self_ptr = match receiver {
 		MethodReceiver::Reference(ReceiverReference {
 			reference: (_, lt), ..
-		}) => (
-			match lt {
-				Some(lt) => quote::quote! { for<#lt> },
-				None => TokenStream::new(),
-			},
-			{
-				let lt = lt.into_iter();
-				quote::quote! { ::dyntable::DynSelf #(<#lt>)* }
-			},
-		),
-		MethodReceiver::Value(_) => (
-			TokenStream::new(),
-			quote::quote! { *mut ::core::ffi::c_void },
-		),
+		}) => {
+			let lt = lt.into_iter();
+			quote::quote! { ::dyntable::DynSelf #(<#lt>)* }
+		},
+		MethodReceiver::Value(_) => {
+			quote::quote! { *mut ::core::ffi::c_void }
+		},
+	};
+
+	let declared_lifetimes = generics
+		.params
+		.iter()
+		.filter_map(|param| match param {
+			GenericParam::Type(_) => None,
+			GenericParam::Const(_) => None,
+			// Currently, lifetime bounds cannot be expressed with relation to
+			// another bound in a for clause. This means it is not possible to
+			// express bounds with relation to trait lifetime parameters as
+			// generic parameters in the for clause. It is unclear if this is an
+			// issue.
+			GenericParam::Lifetime(lt) => Some(lt),
+		})
+		.collect::<Punctuated<_, Token![,]>>();
+
+	let for_tok = match declared_lifetimes.is_empty() {
+		true => TokenStream::new(),
+		false => quote::quote! { for<#declared_lifetimes> },
 	};
 
 	quote::quote! {

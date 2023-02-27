@@ -2,7 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream};
+use quote::ToTokens;
 use syn::{
 	parse::{Parse, ParseStream},
 	punctuated::Punctuated,
@@ -10,8 +11,10 @@ use syn::{
 	token,
 	Attribute,
 	FnArg,
+	GenericParam,
 	Generics,
 	Ident,
+	LifetimeDef,
 	Pat,
 	PatIdent,
 	PatType,
@@ -287,6 +290,41 @@ impl TryFrom<Signature> for MethodEntry {
 				variadic,
 				"variadics are not supported in #[dyntable] annotated traits",
 			))
+		}
+
+		if let Some(where_clause) = generics.where_clause {
+			return Err(syn::Error::new_spanned(
+				where_clause,
+				"where clauses cannot be specified for functions in #[dyntable] traits",
+			))
+		}
+
+		for param in &generics.params {
+			match param {
+				GenericParam::Lifetime(LifetimeDef {
+					colon_token: Some(colon_tok),
+					bounds,
+					..
+				}) => {
+					let mut buffer = TokenStream::new();
+					colon_tok.to_tokens(&mut buffer);
+					bounds.to_tokens(&mut buffer);
+					return Err(syn::Error::new_spanned(buffer, "lifetime bounds cannot be specified for function lifetime generics in #[dyntable] traits"))
+				},
+				GenericParam::Lifetime(_) => {}, // non-bounded lifetimes are fine
+				GenericParam::Const(param) => {
+					return Err(syn::Error::new_spanned(
+						param,
+						"const generics cannot be specified for functions in #[dyntable] traits",
+					))
+				},
+				GenericParam::Type(param) => {
+					return Err(syn::Error::new_spanned(
+						param,
+						"type generics cannot be specified for functions in #[dyntable] traits",
+					))
+				},
+			}
 		}
 
 		let mut receiver = Option::<MethodReceiver>::None;
