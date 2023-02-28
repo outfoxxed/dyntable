@@ -158,11 +158,13 @@ pub fn gen_impl(
 /// Generate a vtable entry for a solid base type
 fn gen_method_entry(
 	DynTraitInfo {
-		dyntrait: TraitInfo {
-			ident,
-			generics: trait_generics,
-			..
-		},
+		dyntrait:
+			TraitInfo {
+				ident,
+				generics: trait_generics,
+				vtable_ty_generics: trait_vt_generics,
+				..
+			},
 		vtable: VTableInfo {
 			generics: vtable_generics,
 			..
@@ -242,7 +244,7 @@ fn gen_method_entry(
 			quote::quote! {{
 				#unsafety #abi #fn_token thunk <
 					#(#impl_generic_entries,)*
-					__DynSelf: #ident #ty_generics,
+					__DynSelf: #ident #trait_vt_generics,
 				> (__dyn_self: *mut __DynSelf, #(#param_list),*) #output
 				#fn_where_clause {
 					<__DynSelf as #ident #ty_generics>::#fn_ident(

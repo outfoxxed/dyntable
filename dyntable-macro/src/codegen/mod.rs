@@ -2,7 +2,15 @@
 
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, ToTokens};
-use syn::{punctuated::Punctuated, GenericParam, Lifetime, Token, TraitBound, TypeParamBound};
+use syn::{
+	punctuated::Punctuated,
+	GenericParam,
+	Lifetime,
+	Token,
+	TraitBound,
+	TypeParam,
+	TypeParamBound,
+};
 
 use crate::parse::{
 	DynTraitInfo,
@@ -28,6 +36,21 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let (impl_generics, ty_generics, where_clause) = dyntrait.dyntrait.generics.split_for_impl();
 	let (vt_impl_generics, vt_ty_generics, _) = dyntrait.vtable.generics.split_for_impl();
 	let trait_vt_ty_generics = &dyntrait.dyntrait.vtable_ty_generics;
+
+	let type_impl_entries = dyntrait
+		.dyntrait
+		.vtable_ty_generics
+		.0
+		.iter()
+		.filter_map(|param| match param {
+			GenericParam::Type(TypeParam {
+				ident,
+				default: Some(assoc),
+				..
+			}) => Some((ident, assoc)),
+			_ => None,
+		})
+		.map(|(ident, assoc)| quote::quote! { type #ident = #assoc; });
 
 	let vtable_def = vtable::gen_vtable(dyntrait);
 	let vtable_impl = vtable::gen_impl(dyntrait);
@@ -213,7 +236,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			let code = match receiver {
 				MethodReceiver::Reference(_) => quote::quote! {
 					(::dyntable::SubTable::<
-						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
+						<(dyn #ident #trait_vt_ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
 					>::subtable(&*self.dyn_vtable()).#fn_ident)(
 						::dyntable::DynSelf::from_raw(self.dyn_ptr()),
 						#(#arg_list),*
@@ -223,7 +246,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 					// call the function, the function will consider the pointer
 					// to be by value
 					let __dyn_result = (::dyntable::SubTable::<
-						<(dyn #ident #ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
+						<(dyn #ident #trait_vt_ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
 					>::subtable(&*self.dyn_vtable()).#fn_ident)(
 						self.dyn_ptr(),
 						#(#arg_list),*
@@ -321,6 +344,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				>)*,
 			#(<<__AsDyn::Repr as ::dyntable::VTableRepr>::VTable as ::dyntable::VTable>::Bounds: #trait_bounds,)*
 		{
+			#(#type_impl_entries)*
 			#(#dyn_impl_methods)*
 		}
 	}

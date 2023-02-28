@@ -450,7 +450,7 @@ pub fn make_trait_vtable_ty_generics(
 }
 
 #[derive(Debug)]
-pub struct VTableTraitTyGenerics(Punctuated<GenericParam, Token![,]>);
+pub struct VTableTraitTyGenerics(pub Punctuated<GenericParam, Token![,]>);
 
 impl ToTokens for VTableTraitTyGenerics {
 	fn to_tokens(&self, tokens: &mut TokenStream) {
