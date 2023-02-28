@@ -65,7 +65,7 @@ pub fn gen_vtable(
 	};
 
 	quote::quote! {
-		#[allow(non_snake_case)]
+		#[allow(non_snake_case, non_camel_case_types)]
 		#repr
 		#vis struct #vtable_ident #impl_generics
 		#where_clause {

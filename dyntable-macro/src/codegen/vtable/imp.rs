@@ -104,6 +104,7 @@ pub fn gen_impl(
 	.collect::<Vec<_>>();
 
 	quote::quote! {
+		#[allow(non_camel_case_types)]
 		unsafe impl<
 			'__dyn_vtable,
 			#(#impl_vt_generic_entries,)*
@@ -132,6 +133,7 @@ pub fn gen_impl(
 
 		// drop implementation
 		#(#drop_marker // marker, no code generated
+			#[allow(non_camel_case_types)]
 			unsafe impl #impl_generics ::dyntable::AssociatedDrop
 			for #vtable_ident #ty_generics
 			#where_clause {
@@ -143,6 +145,7 @@ pub fn gen_impl(
 		)*
 
 		#(#embed_layout // marker, no code generated
+			#[allow(non_camel_case_types)]
 			unsafe impl #impl_generics ::dyntable::AssociatedLayout
 			for #vtable_ident #ty_generics
 			#where_clause {

@@ -168,9 +168,10 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				     child: Subtable { path: child, .. },
 				 }| {
 					quote::quote! {
-						impl #impl_generics
+						#[allow(non_camel_case_types)]
+						impl #vt_impl_generics
 							::dyntable::SubTable<<(dyn #child + 'static) as ::dyntable::VTableRepr>::VTable>
-						for #vtable_ident #ty_generics
+						for #vtable_ident #vt_ty_generics
 						#where_clause {
 							#[inline(always)]
 							fn subtable(&self) ->
@@ -188,9 +189,10 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			let subtable_path = &subtable.path;
 
 			quote::quote! {
-				impl #impl_generics
+				#[allow(non_camel_case_types)]
+				impl #vt_impl_generics
 					::dyntable::SubTable<<(dyn #subtable_path + 'static) as ::dyntable::VTableRepr>::VTable>
-				for #vtable_ident #ty_generics
+				for #vtable_ident #vt_ty_generics
 				#where_clause {
 					#[inline(always)]
 					fn subtable(&self) ->
@@ -278,28 +280,34 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		#vtable_def
 
 		#vtable_bound_trait
+
+		#[allow(non_camel_case_types)]
 		unsafe impl #vt_impl_generics ::dyntable::VTable for #vtable_ident #vt_ty_generics
 		#where_clause {
 			type Bounds = dyn #vtable_bounds;
 		}
 
+		#[allow(non_camel_case_types)]
 		impl #vt_impl_generics ::dyntable::VTableRepr for dyn #ident #trait_vt_ty_generics
 		#where_clause {
 			type VTable = #vtable_ident #vt_ty_generics;
 		}
 
+		#[allow(non_camel_case_types)]
 		impl #vt_impl_generics ::dyntable::VTableRepr
 		for dyn #ident #trait_vt_ty_generics + ::core::marker::Send
 		#where_clause {
 			type VTable = ::dyntable::__private::SendVTable<#vtable_ident #vt_ty_generics>;
 		}
 
+		#[allow(non_camel_case_types)]
 		impl #vt_impl_generics ::dyntable::VTableRepr
 		for dyn #ident #trait_vt_ty_generics + ::core::marker::Sync
 		#where_clause {
 			type VTable = ::dyntable::__private::SyncVTable<#vtable_ident #vt_ty_generics>;
 		}
 
+		#[allow(non_camel_case_types)]
 		impl #vt_impl_generics ::dyntable::VTableRepr
 		for dyn #ident #trait_vt_ty_generics + ::core::marker::Send + ::core::marker::Sync
 		#where_clause {
@@ -314,6 +322,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			const STATIC_VTABLE: &'v V;
 		}
 
+		#[allow(non_camel_case_types)]
 		unsafe impl<
 			'__dyn_vtable,
 			#(#impl_vt_generic_entries,)*
@@ -330,6 +339,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 		#vtable_impl
 
+		#[allow(non_camel_case_types)]
 		impl<
 			#(#impl_generic_entries,)*
 			__AsDyn,
@@ -337,6 +347,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		where
 			#(#where_predicates,)*
 			__AsDyn: ::dyntable::AsDyn #(+ #as_dyn_bounds)*,
+			__AsDyn::Repr: #ident #trait_vt_ty_generics,
 			<__AsDyn::Repr as ::dyntable::VTableRepr>::VTable:
 				::dyntable::SubTable<#vtable_ident #vt_ty_generics>
 				#(+ ::dyntable::SubTable<
