@@ -46,3 +46,15 @@ trait BoundedOnMultiple
 where
 	dyn Foo + Bar:,
 {}
+
+#[dyntable]
+trait BoundedOnModifer
+where
+	dyn ?Foo:,
+{}
+
+#[dyntable]
+trait BoundedByModifier
+where
+	dyn Bar: ?Foo,
+{}

@@ -39,3 +39,15 @@ error: dyn bound must have exactly 1 trait
    |
 47 |     dyn Foo + Bar:,
    |               ^^^
+
+error: dyn bound cannot have trait modifier
+  --> tests/compile/fail/dyn_where_bound.rs:53:6
+   |
+53 |     dyn ?Foo:,
+   |         ^
+
+error: dyn bound cannot have trait modifier
+  --> tests/compile/fail/dyn_where_bound.rs:59:11
+   |
+59 |     dyn Bar: ?Foo,
+   |              ^

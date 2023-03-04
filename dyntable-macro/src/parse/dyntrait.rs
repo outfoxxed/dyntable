@@ -66,18 +66,7 @@ impl Parse for DynTraitBody {
 		let mut dyntrait = input.parse::<ItemTrait>()?;
 
 		let dyn_entries = match &mut dyntrait.generics.where_clause {
-			Some(where_clause) => {
-				let mut owned_where = WhereClause {
-					where_token: Default::default(),
-					predicates: Punctuated::new(),
-				};
-
-				mem::swap(&mut owned_where, where_clause);
-				let (owned_where, dyn_entries) = strip_dyn_entries(owned_where)?;
-				*where_clause = owned_where;
-
-				dyn_entries
-			},
+			Some(where_clause) => strip_dyn_entries(where_clause)?,
 			None => Vec::new(),
 		};
 
@@ -162,16 +151,12 @@ impl Parse for DynTraitBody {
 }
 
 /// Strip and return dyn entries from a where clause
-fn strip_dyn_entries(
-	where_clause: WhereClause,
-) -> Result<(WhereClause, Vec<DynPredicate>), syn::Error> {
+fn strip_dyn_entries(where_clause: &mut WhereClause) -> Result<Vec<DynPredicate>, syn::Error> {
 	let mut dyn_entries = Vec::<DynPredicate>::new();
+	let mut where_predicates = Punctuated::<WherePredicate, Token![,]>::new();
+	mem::swap(&mut where_predicates, &mut where_clause.predicates);
 
-	// drain filter when
-	let mut predicates = where_clause.predicates.into_iter().collect::<Vec<_>>();
-
-	let mut i = 0;
-	while let Some(entry) = predicates.get(i) {
+	for predicate in where_predicates {
 		// purposefully avoids `Type::Paren`, which acts as an escape hatch
 		if let WherePredicate::Type(PredicateType {
 			bounded_ty:
@@ -181,7 +166,7 @@ fn strip_dyn_entries(
 					},
 				),
 			..
-		}) = entry
+		}) = &predicate
 		{
 			let traitobj_span = traitobj.span();
 
@@ -190,7 +175,7 @@ fn strip_dyn_entries(
 				lifetimes,
 				colon_token,
 				bounds: predicate_bounds,
-			}) = predicates.remove(i) else {
+			}) = predicate else {
 				unreachable!("pattern matched on reference immediately before destructure")
 			};
 
@@ -207,35 +192,32 @@ fn strip_dyn_entries(
 					))
 				}
 
-				let TypeParamBound::Trait(trait_bound) = bound else {
-					return Err(syn::Error::new_spanned(bound, "dyn bound must be a trait"));
-				};
-
-				if let TraitBound {
-					lifetimes: Some(bound_lifetimes),
-					..
-				} = &trait_bound
-				{
-					return Err(syn::Error::new_spanned(
-						bound_lifetimes,
-						"dyn bound cannot have higher ranked trait bounds",
-					))
-				}
-
-				match &trait_bound {
-					TraitBound {
+				match bound {
+					TypeParamBound::Trait(TraitBound {
 						modifier: TraitBoundModifier::None,
+						lifetimes: None,
+						path,
 						..
-					} => {},
-					TraitBound { modifier, .. } => {
+					}) => path,
+					TypeParamBound::Trait(TraitBound {
+						lifetimes: Some(bound_lifetimes),
+						..
+					}) => {
+						return Err(syn::Error::new_spanned(
+							bound_lifetimes,
+							"dyn bound cannot have higher ranked trait bounds",
+						))
+					},
+					TypeParamBound::Trait(TraitBound { modifier, .. }) => {
 						return Err(syn::Error::new_spanned(
 							modifier,
 							"dyn bound cannot have trait modifier",
 						))
 					},
+					bound => {
+						return Err(syn::Error::new_spanned(bound, "dyn bound must be a trait"))
+					},
 				}
-
-				trait_bound.path
 			};
 
 			if let Some(bound_lifetimes) = lifetimes {
@@ -249,35 +231,32 @@ fn strip_dyn_entries(
 				let mut bounds = Punctuated::<Path, Token![+]>::new();
 
 				for bound in predicate_bounds {
-					let TypeParamBound::Trait(trait_bound) = bound else {
-						return Err(syn::Error::new_spanned(bound, "dyn bound must be a trait"));
-					};
-
-					if let TraitBound {
-						lifetimes: Some(bound_lifetimes),
-						..
-					} = &trait_bound
-					{
-						return Err(syn::Error::new_spanned(
-							bound_lifetimes,
-							"dyn bound cannot have higher ranked trait bounds",
-						))
-					}
-
-					match &trait_bound {
-						TraitBound {
+					match bound {
+						TypeParamBound::Trait(TraitBound {
 							modifier: TraitBoundModifier::None,
+							lifetimes: None,
+							path,
 							..
-						} => {},
-						TraitBound { modifier, .. } => {
+						}) => bounds.push(path),
+						TypeParamBound::Trait(TraitBound {
+							lifetimes: Some(bound_lifetimes),
+							..
+						}) => {
+							return Err(syn::Error::new_spanned(
+								bound_lifetimes,
+								"dyn bound cannot have higher ranked trait bounds",
+							))
+						},
+						TypeParamBound::Trait(TraitBound { modifier, .. }) => {
 							return Err(syn::Error::new_spanned(
 								modifier,
 								"dyn bound cannot have trait modifier",
 							))
 						},
+						bound => {
+							return Err(syn::Error::new_spanned(bound, "dyn bound must be a trait"))
+						},
 					}
-
-					bounds.push(trait_bound.path);
 				}
 
 				bounds
@@ -290,17 +269,11 @@ fn strip_dyn_entries(
 				bounds,
 			});
 		} else {
-			i += 1;
+			where_clause.predicates.push(predicate);
 		}
 	}
 
-	Ok((
-		WhereClause {
-			where_token: where_clause.where_token,
-			predicates: predicates.into_iter().collect(),
-		},
-		dyn_entries,
-	))
+	Ok(dyn_entries)
 }
 
 pub struct DynPredicate {
