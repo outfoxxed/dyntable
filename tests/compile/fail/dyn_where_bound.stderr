@@ -1,11 +1,41 @@
 error: dyn trait bound has no relation to the defined trait. dyn bounds must match a direct trait bound or indirect trait bound (through a different dyn bound)
- --> tests/compile/fail/dyn_where_bound.rs:9:6
-  |
-9 |     dyn ObjectSafe:,
-  |         ^^^^^^^^^^
-
-error[E0601]: `main` function not found in crate `$CRATE`
-  --> tests/compile/fail/dyn_where_bound.rs:10:3
+  --> tests/compile/fail/dyn_where_bound.rs:11:6
    |
-10 | {}
-   |   ^ consider adding a `main` function to `$DIR/tests/compile/fail/dyn_where_bound.rs`
+11 |     dyn ObjectSafe:,
+   |         ^^^^^^^^^^
+
+error: dyn bound must have exactly 1 trait
+  --> tests/compile/fail/dyn_where_bound.rs:17:13
+   |
+17 |     dyn 'foo + Foo:,
+   |                ^^^
+
+error: dyn bound must be a trait
+  --> tests/compile/fail/dyn_where_bound.rs:23:11
+   |
+23 |     dyn Foo: 'foo,
+   |              ^^^^
+
+error: dyn bound cannot have higher ranked trait bounds
+  --> tests/compile/fail/dyn_where_bound.rs:29:2
+   |
+29 |     for<'a> dyn Foo:,
+   |     ^^^^^^^
+
+error: dyn bound cannot have higher ranked trait bounds
+  --> tests/compile/fail/dyn_where_bound.rs:35:11
+   |
+35 |     dyn Foo: for<'a> Bar,
+   |              ^^^^^^^
+
+error: expected identifier
+  --> tests/compile/fail/dyn_where_bound.rs:41:6
+   |
+41 |     dyn :,
+   |         ^
+
+error: dyn bound must have exactly 1 trait
+  --> tests/compile/fail/dyn_where_bound.rs:47:12
+   |
+47 |     dyn Foo + Bar:,
+   |               ^^^

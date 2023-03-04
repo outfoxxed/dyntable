@@ -1,6 +1,9 @@
 //! Parsing structures for a `#[dyntable]` annotated trait.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+	collections::{HashMap, HashSet},
+	mem,
+};
 
 use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
@@ -14,24 +17,30 @@ use syn::{
 	GenericParam,
 	Generics,
 	Ident,
+	ItemTrait,
 	LifetimeDef,
 	Pat,
 	PatIdent,
 	PatType,
 	PatWild,
 	Path,
+	PredicateType,
 	Receiver,
 	Signature,
 	Token,
 	TraitBound,
+	TraitBoundModifier,
 	TraitItem,
 	TraitItemMethod,
 	TraitItemType,
+	Type,
 	TypeParamBound,
+	TypeTraitObject,
 	Visibility,
+	WhereClause,
+	WherePredicate,
 };
 
-use self::parse::{DynTrait, DynWherePredicateSupertrait};
 use super::{MethodEntry, MethodParam, MethodReceiver, ReceiverReference, Subtable};
 use crate::parse::SubtableEntry;
 
@@ -54,24 +63,30 @@ pub struct DynTraitBody {
 
 impl Parse for DynTraitBody {
 	fn parse(input: ParseStream) -> syn::Result<Self> {
-		let dyntrait = input.parse::<DynTrait>()?;
+		let mut dyntrait = input.parse::<ItemTrait>()?;
+
+		let dyn_entries = match &mut dyntrait.generics.where_clause {
+			Some(where_clause) => {
+				let mut owned_where = WhereClause {
+					where_token: Default::default(),
+					predicates: Punctuated::new(),
+				};
+
+				mem::swap(&mut owned_where, where_clause);
+				let (owned_where, dyn_entries) = strip_dyn_entries(owned_where)?;
+				*where_clause = owned_where;
+
+				dyn_entries
+			},
+			None => Vec::new(),
+		};
 
 		let subtables = solve_subtables(
 			dyntrait.supertraits.iter().filter_map(|bound| match bound {
 				TypeParamBound::Trait(t) => Some(t.clone()),
 				_ => None,
 			}),
-			dyntrait
-				.generics
-				.where_clause
-				.as_ref()
-				.map(|where_clause| where_clause.predicates.clone())
-				.unwrap_or_else(|| Punctuated::new())
-				.into_iter()
-				.filter_map(|predicate| match predicate {
-					parse::DynWherePredicate::Dyn(predicate) => Some(predicate),
-					_ => None,
-				}),
+			dyn_entries.into_iter(),
 		)?;
 
 		let subtable_entries = {
@@ -85,7 +100,7 @@ impl Parse for DynTraitBody {
 					// "friendly name" of a trait.
 					// `foo::Bar<Baz>` becomes `Bar`
 					let bound_name = subtable.path.segments.last()
-						// under what circumstanced would you type `trait MyTrait: :: {}`
+						// under what circumstances would you type `trait MyTrait: :: {}`
 						.ok_or_else(|| syn::Error::new_spanned(
 							&subtable.path,
 							"not a valid path",
@@ -135,7 +150,7 @@ impl Parse for DynTraitBody {
 			unsafety: dyntrait.unsafety,
 			trait_token: dyntrait.trait_token,
 			ident: dyntrait.ident,
-			generics: dyntrait.generics.strip_dyntable(),
+			generics: dyntrait.generics,
 			colon_token: dyntrait.colon_token,
 			supertraits: dyntrait.supertraits,
 			subtables: subtable_entries,
@@ -146,6 +161,155 @@ impl Parse for DynTraitBody {
 	}
 }
 
+/// Strip and return dyn entries from a where clause
+fn strip_dyn_entries(
+	where_clause: WhereClause,
+) -> Result<(WhereClause, Vec<DynPredicate>), syn::Error> {
+	let mut dyn_entries = Vec::<DynPredicate>::new();
+
+	// drain filter when
+	let mut predicates = where_clause.predicates.into_iter().collect::<Vec<_>>();
+
+	let mut i = 0;
+	while let Some(entry) = predicates.get(i) {
+		// purposefully avoids `Type::Paren`, which acts as an escape hatch
+		if let WherePredicate::Type(PredicateType {
+			bounded_ty:
+				Type::TraitObject(
+					traitobj @ TypeTraitObject {
+						dyn_token: Some(_), ..
+					},
+				),
+			..
+		}) = entry
+		{
+			let traitobj_span = traitobj.span();
+
+			let WherePredicate::Type(PredicateType {
+				bounded_ty: Type::TraitObject(TypeTraitObject { dyn_token: Some(dyn_token), bounds }),
+				lifetimes,
+				colon_token,
+				bounds: predicate_bounds,
+			}) = predicates.remove(i) else {
+				unreachable!("pattern matched on reference immediately before destructure")
+			};
+
+			let bounded_ty = {
+				let mut iter = bounds.into_iter();
+				let bound = iter.next().ok_or_else(|| {
+					syn::Error::new(traitobj_span, "dyn bound must have exactly 1 trait")
+				})?;
+
+				if let Some(extra_trait) = iter.next() {
+					return Err(syn::Error::new_spanned(
+						extra_trait,
+						"dyn bound must have exactly 1 trait",
+					))
+				}
+
+				let TypeParamBound::Trait(trait_bound) = bound else {
+					return Err(syn::Error::new_spanned(bound, "dyn bound must be a trait"));
+				};
+
+				if let TraitBound {
+					lifetimes: Some(bound_lifetimes),
+					..
+				} = &trait_bound
+				{
+					return Err(syn::Error::new_spanned(
+						bound_lifetimes,
+						"dyn bound cannot have higher ranked trait bounds",
+					))
+				}
+
+				match &trait_bound {
+					TraitBound {
+						modifier: TraitBoundModifier::None,
+						..
+					} => {},
+					TraitBound { modifier, .. } => {
+						return Err(syn::Error::new_spanned(
+							modifier,
+							"dyn bound cannot have trait modifier",
+						))
+					},
+				}
+
+				trait_bound.path
+			};
+
+			if let Some(bound_lifetimes) = lifetimes {
+				return Err(syn::Error::new_spanned(
+					bound_lifetimes,
+					"dyn bound cannot have higher ranked trait bounds",
+				))
+			}
+
+			let bounds = {
+				let mut bounds = Punctuated::<Path, Token![+]>::new();
+
+				for bound in predicate_bounds {
+					let TypeParamBound::Trait(trait_bound) = bound else {
+						return Err(syn::Error::new_spanned(bound, "dyn bound must be a trait"));
+					};
+
+					if let TraitBound {
+						lifetimes: Some(bound_lifetimes),
+						..
+					} = &trait_bound
+					{
+						return Err(syn::Error::new_spanned(
+							bound_lifetimes,
+							"dyn bound cannot have higher ranked trait bounds",
+						))
+					}
+
+					match &trait_bound {
+						TraitBound {
+							modifier: TraitBoundModifier::None,
+							..
+						} => {},
+						TraitBound { modifier, .. } => {
+							return Err(syn::Error::new_spanned(
+								modifier,
+								"dyn bound cannot have trait modifier",
+							))
+						},
+					}
+
+					bounds.push(trait_bound.path);
+				}
+
+				bounds
+			};
+
+			dyn_entries.push(DynPredicate {
+				dyn_token,
+				bounded_ty,
+				colon_token,
+				bounds,
+			});
+		} else {
+			i += 1;
+		}
+	}
+
+	Ok((
+		WhereClause {
+			where_token: where_clause.where_token,
+			predicates: predicates.into_iter().collect(),
+		},
+		dyn_entries,
+	))
+}
+
+pub struct DynPredicate {
+	pub dyn_token: Token![dyn],
+	pub bounded_ty: Path,
+	pub colon_token: Token![:],
+	pub bounds: Punctuated<Path, Token![+]>,
+}
+
 /// Build a list of subtable graphs from trait bounds
 ///
 /// # Note:
@@ -153,7 +317,7 @@ impl Parse for DynTraitBody {
 /// see the rustdoc for [`Subtable`].
 fn solve_subtables(
 	trait_bounds: impl Iterator<Item = TraitBound>,
-	where_predicates: impl Iterator<Item = DynWherePredicateSupertrait>,
+	where_predicates: impl Iterator<Item = DynPredicate>,
 ) -> syn::Result<Vec<Subtable>> {
 	let mut supertrait_map = HashMap::<Path, Option<Punctuated<Path, Token![+]>>>::new();
 	// paths can only be specified once
@@ -161,7 +325,7 @@ fn solve_subtables(
 
 	// Create a supertrait -> bound list mapping of all
 	// specified dyn supertraits in a where clause
-	for DynWherePredicateSupertrait {
+	for DynPredicate {
 		bounded_ty, bounds, ..
 	} in where_predicates
 	{
@@ -227,13 +391,16 @@ fn solve_subtables(
 /// cannot be called recursively.
 ///
 /// Example:
-/// ```
+///
+/// ```text
 /// where
 ///     dyn A: B + C,
 ///     dyn B: D,
 /// ```
+///
 /// is converted to
-/// ```
+///
+/// ```text
 /// Subtable {
 /// 	ident: "A",
 /// 	subtables: [
@@ -432,326 +599,5 @@ impl TryFrom<Signature> for MethodEntry {
 			inputs: args,
 			output,
 		})
-	}
-}
-
-// copied from old trait parsing code.
-// TODO: review
-mod parse {
-	use syn::{
-		braced,
-		ext::IdentExt,
-		parse::{Parse, ParseStream},
-		punctuated::Punctuated,
-		token::{self, Trait},
-		Attribute,
-		ConstParam,
-		GenericParam,
-		Generics,
-		Ident,
-		Lifetime,
-		LifetimeDef,
-		Path,
-		PredicateEq,
-		PredicateLifetime,
-		PredicateType,
-		Token,
-		TraitItem,
-		TypeParam,
-		TypeParamBound,
-		Visibility,
-		WhereClause,
-		WherePredicate,
-	};
-
-	#[derive(Debug, Clone)]
-	pub struct DynTrait {
-		pub attrs: Vec<Attribute>,
-		pub vis: Visibility,
-		pub unsafety: Option<Token![unsafe]>,
-		pub trait_token: Trait,
-		pub ident: Ident,
-		pub generics: DynGenerics,
-		pub colon_token: Option<Token![:]>,
-		pub supertraits: Punctuated<TypeParamBound, Token![+]>,
-		pub brace_token: token::Brace,
-		pub items: Vec<TraitItem>,
-	}
-
-	#[derive(Debug, Clone)]
-	pub struct DynGenerics {
-		pub lt_token: Option<Token![<]>,
-		pub params: Punctuated<GenericParam, Token![,]>,
-		pub gt_token: Option<Token![>]>,
-		pub where_clause: Option<DynWhereClause>,
-	}
-
-	#[derive(Debug, Clone)]
-	pub struct DynWhereClause {
-		pub where_token: Token![where],
-		pub predicates: Punctuated<DynWherePredicate, Token![,]>,
-	}
-
-	#[derive(Debug, Clone)]
-	pub enum DynWherePredicate {
-		Dyn(DynWherePredicateSupertrait),
-		Type(PredicateType),
-		Lifetime(PredicateLifetime),
-		Eq(PredicateEq),
-	}
-
-	#[derive(Debug, Clone)]
-	pub struct DynWherePredicateSupertrait {
-		pub dyn_token: Token![dyn],
-		pub bounded_ty: Path,
-		pub colon_token: Token![:],
-		pub bounds: Punctuated<Path, Token![+]>,
-	}
-
-	impl DynGenerics {
-		/// Strips out all dyntable information, leaving a normal `Generics` struct
-		pub fn strip_dyntable(self) -> Generics {
-			let Self {
-				lt_token,
-				params,
-				gt_token,
-				where_clause,
-			} = self;
-
-			Generics {
-				lt_token,
-				params,
-				gt_token,
-				where_clause: where_clause.map(|where_clause| where_clause.strip_dyntable()),
-			}
-		}
-	}
-
-	impl DynWhereClause {
-		/// Strips out all dyntable information, leaving a normal `WhereClause` struct
-		pub fn strip_dyntable(self) -> WhereClause {
-			WhereClause {
-				where_token: self.where_token,
-				predicates: self
-					.predicates
-					.into_iter()
-					.filter_map(|predicate| match predicate {
-						DynWherePredicate::Dyn(_) => None,
-						DynWherePredicate::Type(x) => Some(WherePredicate::Type(x)),
-						DynWherePredicate::Lifetime(x) => Some(WherePredicate::Lifetime(x)),
-						DynWherePredicate::Eq(x) => Some(WherePredicate::Eq(x)),
-					})
-					.collect(),
-			}
-		}
-	}
-
-	impl Default for DynGenerics {
-		fn default() -> Self {
-			Self {
-				lt_token: None,
-				params: Punctuated::new(),
-				gt_token: None,
-				where_clause: None,
-			}
-		}
-	}
-
-	impl From<WherePredicate> for DynWherePredicate {
-		fn from(value: WherePredicate) -> Self {
-			match value {
-				WherePredicate::Type(x) => DynWherePredicate::Type(x),
-				WherePredicate::Lifetime(x) => DynWherePredicate::Lifetime(x),
-				WherePredicate::Eq(x) => DynWherePredicate::Eq(x),
-			}
-		}
-	}
-
-	impl Parse for DynTrait {
-		fn parse(input: ParseStream) -> syn::Result<Self> {
-			// copied from <syn::item::TraitItem as Parse>::parse
-			let mut attrs = input.call(Attribute::parse_outer)?;
-			let vis: Visibility = input.parse()?;
-			let unsafety: Option<Token![unsafe]> = input.parse()?;
-			let trait_token: Token![trait] = input.parse()?;
-			let ident: Ident = input.parse()?;
-			let mut generics: DynGenerics = input.parse()?;
-
-			// copied from syn::item::parse_rest_of_trait
-			let colon_token: Option<Token![:]> = input.parse()?;
-
-			let mut supertraits = Punctuated::new();
-			if colon_token.is_some() {
-				loop {
-					if input.peek(Token![where]) || input.peek(token::Brace) {
-						break
-					}
-					supertraits.push_value(input.parse()?);
-					if input.peek(Token![where]) || input.peek(token::Brace) {
-						break
-					}
-					supertraits.push_punct(input.parse()?);
-				}
-			}
-
-			generics.where_clause = match input.peek(Token![where]) {
-				true => Some(input.parse()?),
-				false => None,
-			};
-
-			let content;
-			let brace_token = braced!(content in input);
-			attrs.extend(Attribute::parse_inner(&content)?);
-			let mut items = Vec::new();
-			while !content.is_empty() {
-				items.push(content.parse()?);
-			}
-
-			Ok(Self {
-				attrs,
-				vis,
-				unsafety,
-				trait_token,
-				ident,
-				generics,
-				colon_token,
-				supertraits,
-				brace_token,
-				items,
-			})
-		}
-	}
-
-	impl Parse for DynGenerics {
-		fn parse(input: ParseStream) -> syn::Result<Self> {
-			// copied from <syn::generics::Generics as syn::Parse>::parse
-			if !input.peek(Token![<]) {
-				return Ok(Self::default())
-			}
-
-			let lt_token: Token![<] = input.parse()?;
-
-			let mut params = Punctuated::new();
-			loop {
-				if input.peek(Token![>]) {
-					break
-				}
-
-				let attrs = input.call(Attribute::parse_outer)?;
-				let lookahead = input.lookahead1();
-				if lookahead.peek(Lifetime) {
-					params.push_value(GenericParam::Lifetime(LifetimeDef {
-						attrs,
-						..input.parse()?
-					}));
-				} else if lookahead.peek(Ident) {
-					params.push_value(GenericParam::Type(TypeParam {
-						attrs,
-						..input.parse()?
-					}));
-				} else if lookahead.peek(Token![const]) {
-					params.push_value(GenericParam::Const(ConstParam {
-						attrs,
-						..input.parse()?
-					}));
-				} else if input.peek(Token![_]) {
-					params.push_value(GenericParam::Type(TypeParam {
-						attrs,
-						ident: input.call(Ident::parse_any)?,
-						colon_token: None,
-						bounds: Punctuated::new(),
-						eq_token: None,
-						default: None,
-					}));
-				} else {
-					return Err(lookahead.error())
-				}
-
-				if input.peek(Token![>]) {
-					break
-				}
-				let punct = input.parse()?;
-				params.push_punct(punct);
-			}
-
-			let gt_token: Token![>] = input.parse()?;
-
-			Ok(Self {
-				lt_token: Some(lt_token),
-				params,
-				gt_token: Some(gt_token),
-				where_clause: None,
-			})
-		}
-	}
-
-	impl Parse for DynWhereClause {
-		fn parse(input: ParseStream) -> syn::Result<Self> {
-			// copied from <syn::generics::WhereClause as syn::Parse>::parse
-			Ok(Self {
-				where_token: input.parse()?,
-				predicates: {
-					let mut predicates = Punctuated::new();
-					loop {
-						if input.is_empty()
-							|| input.peek(token::Brace) || input.peek(Token![,])
-							|| input.peek(Token![;]) || input.peek(Token![:])
-							&& !input.peek(Token![::]) || input.peek(Token![=])
-						{
-							break
-						}
-						let value = input.parse()?;
-						predicates.push_value(value);
-						if !input.peek(Token![,]) {
-							break
-						}
-						let punct = input.parse()?;
-						predicates.push_punct(punct);
-					}
-					predicates
-				},
-			})
-		}
-	}
-
-	impl Parse for DynWherePredicate {
-		fn parse(input: ParseStream) -> syn::Result<Self> {
-			Ok(if input.peek(Token![dyn]) {
-				Self::Dyn(input.parse::<DynWherePredicateSupertrait>()?)
-			} else {
-				input.parse::<WherePredicate>()?.into()
-			})
-		}
-	}
-
-	impl Parse for DynWherePredicateSupertrait {
-		fn parse(input: ParseStream) -> syn::Result<Self> {
-			Ok(Self {
-				dyn_token: input.parse()?,
-				bounded_ty: input.parse()?,
-				colon_token: input.parse()?,
-				bounds: {
-					// copied from <syn::generics::WherePredicate as syn::Parse>::parse
-					let mut bounds = Punctuated::new();
-					loop {
-						if input.is_empty()
-							|| input.peek(token::Brace) || input.peek(Token![,])
-							|| input.peek(Token![;]) || input.peek(Token![:])
-							&& !input.peek(Token![::]) || input.peek(Token![=])
-						{
-							break
-						}
-						let value = input.parse()?;
-						bounds.push_value(value);
-						if !input.peek(Token![+]) {
-							break
-						}
-						let punct = input.parse()?;
-						bounds.push_punct(punct);
-					}
-					bounds
-				},
-			})
-		}
 	}
 }
