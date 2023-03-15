@@ -1,7 +1,57 @@
 error[E0277]: `(dyn NoBounds + 'static)` cannot be shared between threads safely
-  --> tests/compile/fail/send_sync.rs:17:15
+  --> tests/compile/fail/send_sync.rs:23:15
    |
-17 |     require_send(DynBox::borrow(&dynbox));
+23 |     require_send(DynBox::borrow_mut(&mut dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `(dyn NoBounds + 'static)` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: the trait `Sync` is not implemented for `(dyn NoBounds + 'static)`
+   = note: required for `DynRefMut<'_, dyn TestTrait>` to implement `Send`
+note: required by a bound in `require_send`
+  --> tests/compile/fail/send_sync.rs:11:20
+   |
+11 | fn require_send<T: Send>(_: T) {}
+   |                    ^^^^ required by this bound in `require_send`
+
+error[E0277]: `*mut c_void` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:25:15
+   |
+25 |     require_sync(DynBox::borrow_mut(&mut dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `*mut c_void` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: within `DynRefMut<'_, dyn TestTrait>`, the trait `Sync` is not implemented for `*mut c_void`
+   = note: required because it appears within the type `DynPtr<dyn TestTrait>`
+   = note: required because it appears within the type `DynRefMut<'_, dyn TestTrait>`
+note: required by a bound in `require_sync`
+  --> tests/compile/fail/send_sync.rs:12:20
+   |
+12 | fn require_sync<T: Sync>(_: T) {}
+   |                    ^^^^ required by this bound in `require_sync`
+
+error[E0277]: `*const TestTraitVTable` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:25:15
+   |
+25 |     require_sync(DynBox::borrow_mut(&mut dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `*const TestTraitVTable` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: within `DynRefMut<'_, dyn TestTrait>`, the trait `Sync` is not implemented for `*const TestTraitVTable`
+   = note: required because it appears within the type `DynPtr<dyn TestTrait>`
+   = note: required because it appears within the type `DynRefMut<'_, dyn TestTrait>`
+note: required by a bound in `require_sync`
+  --> tests/compile/fail/send_sync.rs:12:20
+   |
+12 | fn require_sync<T: Sync>(_: T) {}
+   |                    ^^^^ required by this bound in `require_sync`
+
+error[E0277]: `(dyn NoBounds + 'static)` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:28:15
+   |
+28 |     require_send(DynBox::borrow(&dynbox));
    |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^ `(dyn NoBounds + 'static)` cannot be shared between threads safely
    |     |
    |     required by a bound introduced by this call
@@ -9,15 +59,15 @@ error[E0277]: `(dyn NoBounds + 'static)` cannot be shared between threads safely
    = help: the trait `Sync` is not implemented for `(dyn NoBounds + 'static)`
    = note: required for `DynRef<'_, dyn TestTrait>` to implement `Send`
 note: required by a bound in `require_send`
-  --> tests/compile/fail/send_sync.rs:6:20
+  --> tests/compile/fail/send_sync.rs:11:20
    |
-6  | fn require_send<T: Send>(_: T) {}
+11 | fn require_send<T: Send>(_: T) {}
    |                    ^^^^ required by this bound in `require_send`
 
 error[E0277]: `*mut c_void` cannot be shared between threads safely
-  --> tests/compile/fail/send_sync.rs:19:15
+  --> tests/compile/fail/send_sync.rs:30:15
    |
-19 |     require_sync(DynBox::borrow(&dynbox));
+30 |     require_sync(DynBox::borrow(&dynbox));
    |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^ `*mut c_void` cannot be shared between threads safely
    |     |
    |     required by a bound introduced by this call
@@ -26,15 +76,15 @@ error[E0277]: `*mut c_void` cannot be shared between threads safely
    = note: required because it appears within the type `DynPtr<dyn TestTrait>`
    = note: required because it appears within the type `DynRef<'_, dyn TestTrait>`
 note: required by a bound in `require_sync`
-  --> tests/compile/fail/send_sync.rs:7:20
+  --> tests/compile/fail/send_sync.rs:12:20
    |
-7  | fn require_sync<T: Sync>(_: T) {}
+12 | fn require_sync<T: Sync>(_: T) {}
    |                    ^^^^ required by this bound in `require_sync`
 
 error[E0277]: `*const TestTraitVTable` cannot be shared between threads safely
-  --> tests/compile/fail/send_sync.rs:19:15
+  --> tests/compile/fail/send_sync.rs:30:15
    |
-19 |     require_sync(DynBox::borrow(&dynbox));
+30 |     require_sync(DynBox::borrow(&dynbox));
    |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^ `*const TestTraitVTable` cannot be shared between threads safely
    |     |
    |     required by a bound introduced by this call
@@ -43,15 +93,15 @@ error[E0277]: `*const TestTraitVTable` cannot be shared between threads safely
    = note: required because it appears within the type `DynPtr<dyn TestTrait>`
    = note: required because it appears within the type `DynRef<'_, dyn TestTrait>`
 note: required by a bound in `require_sync`
-  --> tests/compile/fail/send_sync.rs:7:20
+  --> tests/compile/fail/send_sync.rs:12:20
    |
-7  | fn require_sync<T: Sync>(_: T) {}
+12 | fn require_sync<T: Sync>(_: T) {}
    |                    ^^^^ required by this bound in `require_sync`
 
 error[E0277]: `(dyn NoBounds + 'static)` cannot be sent between threads safely
-  --> tests/compile/fail/send_sync.rs:22:15
+  --> tests/compile/fail/send_sync.rs:33:15
    |
-22 |     require_send(dynbox);
+33 |     require_send(dynbox);
    |     ------------ ^^^^^^ `(dyn NoBounds + 'static)` cannot be sent between threads safely
    |     |
    |     required by a bound introduced by this call
@@ -60,15 +110,15 @@ error[E0277]: `(dyn NoBounds + 'static)` cannot be sent between threads safely
    = note: required for `DynUnchecked<dyn TestTrait>` to implement `Send`
    = note: required because it appears within the type `DynBox<dyn TestTrait>`
 note: required by a bound in `require_send`
-  --> tests/compile/fail/send_sync.rs:6:20
+  --> tests/compile/fail/send_sync.rs:11:20
    |
-6  | fn require_send<T: Send>(_: T) {}
+11 | fn require_send<T: Send>(_: T) {}
    |                    ^^^^ required by this bound in `require_send`
 
 error[E0277]: `(dyn NoBounds + 'static)` cannot be shared between threads safely
-  --> tests/compile/fail/send_sync.rs:24:15
+  --> tests/compile/fail/send_sync.rs:35:15
    |
-24 |     require_sync(dynbox2);
+35 |     require_sync(dynbox2);
    |     ------------ ^^^^^^^ `(dyn NoBounds + 'static)` cannot be shared between threads safely
    |     |
    |     required by a bound introduced by this call
@@ -77,7 +127,124 @@ error[E0277]: `(dyn NoBounds + 'static)` cannot be shared between threads safely
    = note: required for `DynUnchecked<dyn TestTrait>` to implement `Sync`
    = note: required because it appears within the type `DynBox<dyn TestTrait>`
 note: required by a bound in `require_sync`
-  --> tests/compile/fail/send_sync.rs:7:20
+  --> tests/compile/fail/send_sync.rs:12:20
    |
-7  | fn require_sync<T: Sync>(_: T) {}
+12 | fn require_sync<T: Sync>(_: T) {}
+   |                    ^^^^ required by this bound in `require_sync`
+
+error[E0277]: `(dyn Send + 'static)` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:42:15
+   |
+42 |     require_send(DynBox::borrow_mut(&mut dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `(dyn Send + 'static)` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: the trait `Sync` is not implemented for `(dyn Send + 'static)`
+   = note: required for `DynRefMut<'_, dyn TestSend>` to implement `Send`
+note: required by a bound in `require_send`
+  --> tests/compile/fail/send_sync.rs:11:20
+   |
+11 | fn require_send<T: Send>(_: T) {}
+   |                    ^^^^ required by this bound in `require_send`
+
+error[E0277]: `(dyn Send + 'static)` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:43:15
+   |
+43 |     require_send(DynBox::borrow(&dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^ `(dyn Send + 'static)` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: the trait `Sync` is not implemented for `(dyn Send + 'static)`
+   = note: required for `DynRef<'_, dyn TestSend>` to implement `Send`
+note: required by a bound in `require_send`
+  --> tests/compile/fail/send_sync.rs:11:20
+   |
+11 | fn require_send<T: Send>(_: T) {}
+   |                    ^^^^ required by this bound in `require_send`
+
+error[E0277]: `*mut c_void` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:44:15
+   |
+44 |     require_sync(DynBox::borrow_mut(&mut dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `*mut c_void` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: within `DynRefMut<'_, dyn TestSend>`, the trait `Sync` is not implemented for `*mut c_void`
+   = note: required because it appears within the type `DynPtr<dyn TestSend>`
+   = note: required because it appears within the type `DynRefMut<'_, dyn TestSend>`
+note: required by a bound in `require_sync`
+  --> tests/compile/fail/send_sync.rs:12:20
+   |
+12 | fn require_sync<T: Sync>(_: T) {}
+   |                    ^^^^ required by this bound in `require_sync`
+
+error[E0277]: `*const TestSendVTable` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:44:15
+   |
+44 |     require_sync(DynBox::borrow_mut(&mut dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `*const TestSendVTable` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: within `DynRefMut<'_, dyn TestSend>`, the trait `Sync` is not implemented for `*const TestSendVTable`
+   = note: required because it appears within the type `DynPtr<dyn TestSend>`
+   = note: required because it appears within the type `DynRefMut<'_, dyn TestSend>`
+note: required by a bound in `require_sync`
+  --> tests/compile/fail/send_sync.rs:12:20
+   |
+12 | fn require_sync<T: Sync>(_: T) {}
+   |                    ^^^^ required by this bound in `require_sync`
+
+error[E0277]: `*mut c_void` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:45:15
+   |
+45 |     require_sync(DynBox::borrow(&dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^ `*mut c_void` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: within `DynRef<'_, dyn TestSend>`, the trait `Sync` is not implemented for `*mut c_void`
+   = note: required because it appears within the type `DynPtr<dyn TestSend>`
+   = note: required because it appears within the type `DynRef<'_, dyn TestSend>`
+note: required by a bound in `require_sync`
+  --> tests/compile/fail/send_sync.rs:12:20
+   |
+12 | fn require_sync<T: Sync>(_: T) {}
+   |                    ^^^^ required by this bound in `require_sync`
+
+error[E0277]: `*const TestSendVTable` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:45:15
+   |
+45 |     require_sync(DynBox::borrow(&dynbox));
+   |     ------------ ^^^^^^^^^^^^^^^^^^^^^^^ `*const TestSendVTable` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: within `DynRef<'_, dyn TestSend>`, the trait `Sync` is not implemented for `*const TestSendVTable`
+   = note: required because it appears within the type `DynPtr<dyn TestSend>`
+   = note: required because it appears within the type `DynRef<'_, dyn TestSend>`
+note: required by a bound in `require_sync`
+  --> tests/compile/fail/send_sync.rs:12:20
+   |
+12 | fn require_sync<T: Sync>(_: T) {}
+   |                    ^^^^ required by this bound in `require_sync`
+
+error[E0277]: `(dyn Send + 'static)` cannot be shared between threads safely
+  --> tests/compile/fail/send_sync.rs:48:15
+   |
+48 |     require_sync(dynbox);
+   |     ------------ ^^^^^^ `(dyn Send + 'static)` cannot be shared between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: the trait `Sync` is not implemented for `(dyn Send + 'static)`
+   = note: required for `DynUnchecked<dyn TestSend>` to implement `Sync`
+   = note: required because it appears within the type `DynBox<dyn TestSend>`
+note: required by a bound in `require_sync`
+  --> tests/compile/fail/send_sync.rs:12:20
+   |
+12 | fn require_sync<T: Sync>(_: T) {}
    |                    ^^^^ required by this bound in `require_sync`
