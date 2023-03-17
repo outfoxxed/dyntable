@@ -705,7 +705,7 @@ use alloc::MemoryLayout;
 ///
 /// When applied to a trait, this macro will generate
 /// - A VTable representing the trait, including its bounds and methods.
-///   (see [VTable Representation](#vtable-representation))
+///   (see [VTable Layout](#vtable-layout))
 /// - Implementations of [`VTableRepr`], which provides a path
 ///   to vtables associated with the trait.
 /// - An implementation of the trait for all types implementing
