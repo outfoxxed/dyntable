@@ -27,6 +27,7 @@ use crate::{
 
 /// An FFI safe Box that operates on dyntable traits.
 #[repr(C)]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub struct DynBox<V, A = GlobalAllocator>
 where
 	A: Deallocator,
