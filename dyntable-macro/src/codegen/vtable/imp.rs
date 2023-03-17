@@ -57,6 +57,8 @@ pub fn gen_impl(
 						.insert(0, Lifetime::new("'__dyn_vtable", Span::call_site()));
 				},
 				GenericParam::Type(param) => {
+					param.eq_token = None;
+					param.default = None;
 					param.colon_token.get_or_insert_with(Default::default);
 					param.bounds.insert(
 						0,

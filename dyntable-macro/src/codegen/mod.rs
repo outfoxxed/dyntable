@@ -33,7 +33,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 	let trait_attrs = &dyntrait.dyntrait.attrs;
 	let type_entries = &dyntrait.dyntrait.associated_types;
 	let proxy_trait = format_ident!("__DynTrait_{}", dyntrait.dyntrait.ident);
-	let (impl_generics, ty_generics, where_clause) = dyntrait.dyntrait.generics.split_for_impl();
+	let (_, ty_generics, where_clause) = dyntrait.dyntrait.generics.split_for_impl();
+	let trait_generics = &dyntrait.dyntrait.generics;
 	let (vt_impl_generics, vt_ty_generics, _) = dyntrait.vtable.generics.split_for_impl();
 	let trait_vt_ty_generics = &dyntrait.dyntrait.vtable_ty_generics;
 
@@ -61,6 +62,13 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		.params
 		.clone()
 		.into_iter()
+		.map(|mut param| {
+			if let GenericParam::Type(param) = &mut param {
+				param.eq_token = None;
+				param.default = None;
+			}
+			param
+		})
 		.collect::<Vec<_>>();
 
 	let impl_vt_generic_entries = dyntrait
@@ -78,6 +86,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 						.insert(0, Lifetime::new("'__dyn_vtable", Span::call_site()));
 				},
 				GenericParam::Type(param) => {
+					param.eq_token = None;
+					param.default = None;
 					param.colon_token.get_or_insert_with(Default::default);
 					param.bounds.insert(
 						0,
@@ -271,7 +281,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 	quote::quote! {
 		#(#trait_attrs)*
-		#vis trait #ident #impl_generics #(: #trait_bounds)*
+		#vis trait #ident #trait_generics #(: #trait_bounds)*
 		#where_clause {
 			#(#type_entries)*
 			#(#trait_entries)*
