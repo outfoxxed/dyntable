@@ -5,6 +5,7 @@
 | Scope                       | FFI Traits                             | FFI Traits                       |                    | Full Rust FFI                    | FFI Traits         |
 | C FFI                       | :heavy_check_mark:                     | :heavy_check_mark:               | :heavy_check_mark: | :x:                              | :heavy_check_mark: |
 | Rust FFI                    | :heavy_check_mark:                     | :heavy_check_mark:               | :heavy_check_mark: | :heavy_check_mark:               | :heavy_check_mark: |
+| no-std support              | :heavy_check_mark:                     | :heavy_check_mark:[^thin-monly]  | :heavy_check_mark: | :x:                              | :heavy_check_mark: |
 | Pointer Type                | Fat                                    | Thin                             | Fat                | Fat                              | Fat                |
 | Supports References         | :heavy_check_mark:                     | :x:                              | :heavy_check_mark: | :heavy_check_mark:               | :heavy_check_mark: |
 | Non-Box Trait Containers    | :x:                                    | :x:                              | :heavy_check_mark: | :heavy_check_mark:               | :heavy_check_mark: |
@@ -12,6 +13,7 @@
 | Uses Thunks[^m-thunk]       | By-Value Fns                           | Never                            | Always             | Unknown                          | Always             |
 | Trait Bounds / Supertraits  | :heavy_check_mark:[^dyntable-bounds]   | :heavy_check_mark:[^thin-bounds] | :x:                | :heavy_check_mark:[^sabi-bounds] | :x:                |
 | Trait Generics              | :heavy_check_mark:                     | :x:                              | :heavy_check_mark: | :heavy_check_mark:               | :x:                |
+| Default Generics            | :heavy_check_mark:                     | :x:                              | :x:                | :heavy_check_mark:               | :x:                |
 | Trait Groups[^m-groups]     | :x:                                    | :x:                              | :heavy_check_mark: | :x:                              | :x:                |
 | Trait Lifetime Generics     | :heavy_check_mark:                     | :x:                              | :x:                | :heavy_check_mark:               | :x:                |
 | Fn Generics                 | :x:                                    | :x:                              | Panics             | :x:                              | :x:                |
@@ -32,10 +34,11 @@
 [vtable]: https://crates.io/crates/vtable
 
 [^alternative-updates]: The listed alternative crates may have been updated to support unlisted features.
+[^thin-monly]: Thin-trait-object has no runtime component.
 [^dyntable-bounds]: Dyntable traits can only have bounds on other dyntable traits (without associated types) and Send or Sync.
 [^thin-bounds]: Requires manually writing impls and thunks for bound methods.
 [^sabi-bounds]: Abi-Stable traits can only have bounds on a specific selection of traits (see abi_stable docs for details),
-[^m-groups]: Trait groups are non trait bound / supertrait based groupings of traits. See the CGlue docs for details.
+[^m-groups]: Trait groups are non trait bound / supertrait based groupings of traits. See the cglue docs for details.
 [^dyntable-assoc-ty]: Dyntable traits with associated types cannot be used as trait bounds of other dyntable traits.
 [^m-1-macro]: Only one macro is required, on the trait definition.
 [^m-reborrow]: Reborrowing is when a reference is represented by an owned type, and needs to have a function called to borrow it.

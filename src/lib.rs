@@ -1,4 +1,4 @@
-//! Fully featured, Idiomatic, and FFI Safe traits.
+//! (Almost) fully featured, Idiomatic, and FFI Safe traits.
 //!
 //! # Overview
 //! This crate is an alternative implementation of Rust trait objects that
@@ -28,6 +28,7 @@
 //!
 //! #[dyntable]
 //! trait MessageBuilder {
+//!     // Note that String is not FFI safe, but is used here for simplicity.
 //!     extern "C" fn build(&self) -> String;
 //! }
 //!
