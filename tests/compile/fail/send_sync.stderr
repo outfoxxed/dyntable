@@ -107,8 +107,7 @@ error[E0277]: `(dyn NoBounds + 'static)` cannot be sent between threads safely
    |     required by a bound introduced by this call
    |
    = help: the trait `Send` is not implemented for `(dyn NoBounds + 'static)`
-   = note: required for `DynUnchecked<dyn TestTrait>` to implement `Send`
-   = note: required because it appears within the type `DynBox<dyn TestTrait>`
+   = note: required for `DynBox<dyn TestTrait>` to implement `Send`
 note: required by a bound in `require_send`
   --> tests/compile/fail/send_sync.rs:11:20
    |
@@ -124,8 +123,7 @@ error[E0277]: `(dyn NoBounds + 'static)` cannot be shared between threads safely
    |     required by a bound introduced by this call
    |
    = help: the trait `Sync` is not implemented for `(dyn NoBounds + 'static)`
-   = note: required for `DynUnchecked<dyn TestTrait>` to implement `Sync`
-   = note: required because it appears within the type `DynBox<dyn TestTrait>`
+   = note: required for `DynBox<dyn TestTrait>` to implement `Sync`
 note: required by a bound in `require_sync`
   --> tests/compile/fail/send_sync.rs:12:20
    |
@@ -241,8 +239,7 @@ error[E0277]: `(dyn Send + 'static)` cannot be shared between threads safely
    |     required by a bound introduced by this call
    |
    = help: the trait `Sync` is not implemented for `(dyn Send + 'static)`
-   = note: required for `DynUnchecked<dyn TestSend>` to implement `Sync`
-   = note: required because it appears within the type `DynBox<dyn TestSend>`
+   = note: required for `DynBox<dyn TestSend>` to implement `Sync`
 note: required by a bound in `require_sync`
   --> tests/compile/fail/send_sync.rs:12:20
    |

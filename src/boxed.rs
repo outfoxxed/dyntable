@@ -20,8 +20,8 @@ use crate::{
 	DynRef,
 	DynRefMut,
 	DynTrait,
-	DynUnchecked,
 	SubTable,
+	VTable,
 	VTableRepr,
 };
 
@@ -35,7 +35,25 @@ where
 	V::VTable: AssociatedDrop + AssociatedLayout,
 {
 	alloc: A,
-	ptr: DynUnchecked<V>,
+	ptr: DynPtr<V>,
+}
+
+unsafe impl<V, A> Send for DynBox<V, A>
+where
+	A: Deallocator,
+	V: VTableRepr + ?Sized,
+	V::VTable: AssociatedDrop + AssociatedLayout,
+	<V::VTable as VTable>::Bounds: Send,
+{
+}
+
+unsafe impl<V, A> Sync for DynBox<V, A>
+where
+	A: Deallocator,
+	V: VTableRepr + ?Sized,
+	V::VTable: AssociatedDrop + AssociatedLayout,
+	<V::VTable as VTable>::Bounds: Sync,
+{
 }
 
 unsafe impl<V, A> AsDyn for DynBox<V, A>
@@ -48,19 +66,19 @@ where
 
 	#[inline(always)]
 	fn dyn_ptr(&self) -> *mut c_void {
-		self.ptr.ptr.ptr
+		self.ptr.ptr
 	}
 
 	#[inline(always)]
 	fn dyn_vtable(&self) -> *const <Self::Repr as VTableRepr>::VTable {
-		self.ptr.ptr.vtable
+		self.ptr.vtable
 	}
 
 	fn dyn_dealloc(self) {
 		unsafe {
 			self.alloc.deallocate(
-				NonNull::new_unchecked(self.ptr.ptr.ptr as *mut _ as *mut u8),
-				(*self.ptr.ptr.vtable).virtual_layout(),
+				NonNull::new_unchecked(self.ptr.ptr as *mut _ as *mut u8),
+				(*self.ptr.vtable).virtual_layout(),
 			);
 		}
 
@@ -238,10 +256,7 @@ where
 	/// ```
 	#[inline(always)]
 	pub unsafe fn from_raw_in(ptr: DynPtr<V>, alloc: A) -> Self {
-		Self {
-			ptr: DynUnchecked { ptr },
-			alloc,
-		}
+		Self { ptr, alloc }
 	}
 
 	/// Upcast the dynbox to a bounded dyntrait box.
@@ -300,7 +315,7 @@ where
 	pub fn into_raw_with_allocator(b: Self) -> (DynPtr<V>, A) {
 		// SAFETY: the original value is forgotten
 		let alloc = unsafe { (&b.alloc as *const A).read() };
-		let ptr = b.ptr.ptr;
+		let ptr = b.ptr;
 
 		mem::forget(b);
 
@@ -332,7 +347,7 @@ where
 	#[inline(always)]
 	pub fn borrow(b: &Self) -> DynRef<V> {
 		DynRef {
-			ptr: b.ptr.ptr,
+			ptr: b.ptr,
 			_lt: PhantomData,
 		}
 	}
@@ -341,7 +356,7 @@ where
 	#[inline(always)]
 	pub fn borrow_mut(b: &mut Self) -> DynRefMut<V> {
 		DynRefMut {
-			ptr: b.ptr.ptr,
+			ptr: b.ptr,
 			_lt: PhantomData,
 		}
 	}
@@ -381,13 +396,13 @@ where
 {
 	fn drop(&mut self) {
 		unsafe {
-			let vtable = &*self.ptr.ptr.vtable;
-			vtable.virtual_drop(self.ptr.ptr.ptr);
+			let vtable = &*self.ptr.vtable;
+			vtable.virtual_drop(self.ptr.ptr);
 
 			let layout = vtable.virtual_layout();
 			if !layout.is_zero_sized() {
 				self.alloc
-					.deallocate(NonNull::new_unchecked(self.ptr.ptr.ptr as *mut u8), layout);
+					.deallocate(NonNull::new_unchecked(self.ptr.ptr as *mut u8), layout);
 			}
 		}
 	}

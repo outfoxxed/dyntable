@@ -336,30 +336,6 @@ impl<V: VTableRepr + ?Sized> DynPtr<V> {
 	}
 }
 
-/// Wrapper around a raw DynPtr for implementing abstractions.
-///
-/// Implements Send and Sync when they are bounds of the target trait.
-#[repr(transparent)]
-pub struct DynUnchecked<V: VTableRepr + ?Sized> {
-	pub ptr: DynPtr<V>,
-}
-
-impl<V: VTableRepr + ?Sized> Copy for DynUnchecked<V> {}
-impl<V: VTableRepr + ?Sized> Clone for DynUnchecked<V> {
-	fn clone(&self) -> Self {
-		*self
-	}
-}
-
-unsafe impl<V: VTableRepr + ?Sized> Send for DynUnchecked<V> where
-	<V::VTable as VTable>::Bounds: Send
-{
-}
-unsafe impl<V: VTableRepr + ?Sized> Sync for DynUnchecked<V> where
-	<V::VTable as VTable>::Bounds: Sync
-{
-}
-
 /// Wrapper for the `self` parameter of vtable methods to bound
 /// return lifetimes.
 ///
