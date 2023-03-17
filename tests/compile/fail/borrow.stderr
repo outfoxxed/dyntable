@@ -1,29 +1,29 @@
-error[E0502]: cannot borrow `dynref` as mutable because it is also borrowed as immutable
+error[E0499]: cannot borrow `dynref` as mutable more than once at a time
   --> tests/compile/fail/borrow.rs:10:32
    |
-9  |     let a = DynRefMut::borrow(&dynref);
-   |                               ------- immutable borrow occurs here
+9  |     let a = DynRefMut::borrow_mut(&mut dynref);
+   |                                   ----------- first mutable borrow occurs here
 10 |     let b = DynRefMut::borrow_mut(&mut dynref);
-   |                                   ^^^^^^^^^^^ mutable borrow occurs here
+   |                                   ^^^^^^^^^^^ second mutable borrow occurs here
 11 |     let _ = (a, b);
-   |              - immutable borrow later used here
+   |              - first borrow later used here
 
 error[E0502]: cannot borrow `dynref` as mutable because it is also borrowed as immutable
   --> tests/compile/fail/borrow.rs:16:32
    |
-15 |     let a = DynRefMut::borrow(&dynref);
+15 |     let a = DynRefMut::borrow(&dynref).clone();
    |                               ------- immutable borrow occurs here
 16 |     let b = DynRefMut::borrow_mut(&mut dynref);
    |                                   ^^^^^^^^^^^ mutable borrow occurs here
 17 |     let _ = (a, b);
    |              - immutable borrow later used here
 
-error[E0502]: cannot borrow `dynref` as mutable because it is also borrowed as immutable
-  --> tests/compile/fail/borrow.rs:22:32
+error[E0502]: cannot borrow `dynref` as immutable because it is also borrowed as mutable
+  --> tests/compile/fail/borrow.rs:22:28
    |
-21 |     let a = DynRefMut::borrow(&dynref);
-   |                               ------- immutable borrow occurs here
-22 |     let b = DynRefMut::borrow_mut(&mut dynref);
-   |                                   ^^^^^^^^^^^ mutable borrow occurs here
+21 |     let a = DynRefMut::borrow_mut(&mut dynref);
+   |                                   ----------- mutable borrow occurs here
+22 |     let b = DynRefMut::borrow(&dynref).clone();
+   |                               ^^^^^^^ immutable borrow occurs here
 23 |     let _ = (a, b);
-   |              - immutable borrow later used here
+   |              - mutable borrow later used here
