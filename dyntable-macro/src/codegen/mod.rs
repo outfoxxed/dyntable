@@ -110,7 +110,6 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		.supertraits
 		.iter()
 		.filter(|supertrait| match supertrait {
-			TypeParamBound::Lifetime(_) => false,
 			TypeParamBound::Trait(TraitBound {
 				path: superpath, ..
 			}) => !dyntrait.entries.iter().any(|entry| match entry {
@@ -120,6 +119,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				}) if path == superpath => true,
 				_ => false,
 			}),
+			_ => false,
 		})
 		.into_iter()
 		.collect::<Vec<_>>();

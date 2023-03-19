@@ -10,7 +10,7 @@ use syn::{
 	Generics,
 	Ident,
 	Lifetime,
-	LifetimeDef,
+	LifetimeParam,
 	LitStr,
 	Path,
 	ReturnType,
@@ -423,7 +423,7 @@ pub fn make_trait_vtable_ty_generics(
 				eq_token: None,
 				default: None,
 			}),
-			GenericParam::Lifetime(param) => GenericParam::Lifetime(LifetimeDef {
+			GenericParam::Lifetime(param) => GenericParam::Lifetime(LifetimeParam {
 				attrs: Vec::new(),
 				lifetime: param.lifetime,
 				colon_token: None,

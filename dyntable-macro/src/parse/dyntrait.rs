@@ -18,7 +18,7 @@ use syn::{
 	Generics,
 	Ident,
 	ItemTrait,
-	LifetimeDef,
+	LifetimeParam,
 	Pat,
 	PatIdent,
 	PatType,
@@ -31,7 +31,7 @@ use syn::{
 	TraitBound,
 	TraitBoundModifier,
 	TraitItem,
-	TraitItemMethod,
+	TraitItemFn,
 	TraitItemType,
 	Type,
 	TypeParamBound,
@@ -125,7 +125,7 @@ impl Parse for DynTraitBody {
 		for item in dyntrait.items {
 			match item {
 				TraitItem::Type(item) => associated_types.push(item),
-				TraitItem::Method(TraitItemMethod { sig, .. }) => methods.push(MethodEntry::try_from(sig)?),
+				TraitItem::Fn(TraitItemFn { sig, .. }) => methods.push(MethodEntry::try_from(sig)?),
 
 				TraitItem::Const(entry) => return Err(syn::Error::new_spanned(entry, "associated constants are not supported in #[dyntable] traits")),
 				TraitItem::Macro(entry) => return Err(syn::Error::new_spanned(entry, "macro invocations are not supported for directly creating entries in #[dyntable] traits")),
@@ -393,7 +393,7 @@ fn solve_subtables(
 /// ```
 fn graph_subtables(
 	path: Path,
-	supertrait_map: &HashMap<Path, Option<Punctuated<Path, syn::token::Add>>>,
+	supertrait_map: &HashMap<Path, Option<Punctuated<Path, syn::token::Plus>>>,
 	used_supertrait_entries: &mut HashSet<Path>,
 ) -> Subtable {
 	let mut subtables = Vec::<Subtable>::new();
@@ -446,7 +446,7 @@ impl TryFrom<Signature> for MethodEntry {
 
 		for param in &generics.params {
 			match param {
-				GenericParam::Lifetime(LifetimeDef {
+				GenericParam::Lifetime(LifetimeParam {
 					colon_token: Some(colon_tok),
 					bounds,
 					..
@@ -477,6 +477,17 @@ impl TryFrom<Signature> for MethodEntry {
 
 		for input in inputs {
 			match input {
+				FnArg::Receiver(
+					receiver @ Receiver {
+						colon_token: Some(_),
+						..
+					},
+				) => {
+					// explicitly typed self makes it impossible to determine if the
+					// type is a reference or value, due to type aliases and permitted
+					// wrappers.
+					return Err(syn::Error::new_spanned(receiver, "`self` parameter must use implicit type syntax (e.g. `self`, `&self`, `&mut self`)"));
+				},
 				FnArg::Receiver(Receiver {
 					reference: None,
 					self_token,
@@ -540,14 +551,7 @@ impl TryFrom<Signature> for MethodEntry {
 					};
 
 					if receiver.is_none() {
-						if ident.to_string() == "self" {
-							// explicitly typed self makes it impossible to determine if the
-							// type is a reference or value, due to type aliases and permitted
-							// wrappers.
-							return Err(syn::Error::new_spanned(ident, "`self` parameter must use implicit type syntax (e.g. `self`, `&self`, `&mut self`)"));
-						} else {
-							return Err(syn::Error::new(pat_span, "first parameter must be `self`"))
-						}
+						return Err(syn::Error::new(pat_span, "first parameter must be `self`"))
 					}
 
 					args.push(MethodParam {

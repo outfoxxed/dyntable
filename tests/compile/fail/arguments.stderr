@@ -20,4 +20,4 @@ error: `self` parameter must use implicit type syntax (e.g. `self`, `&self`, `&m
   --> tests/compile/fail/arguments.rs:30:10
    |
 30 |     fn test(self: Self);
-   |             ^^^^
+   |             ^^^^^^^^^^

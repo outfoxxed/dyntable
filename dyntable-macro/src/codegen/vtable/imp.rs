@@ -4,7 +4,7 @@ use syn::{
 	ConstParam,
 	GenericParam,
 	Lifetime,
-	LifetimeDef,
+	LifetimeParam,
 	ReturnType,
 	Token,
 	TypeParam,
@@ -228,7 +228,7 @@ fn gen_method_entry(
 				.into_iter()
 				.map(|param| match param {
 					GenericParam::Type(TypeParam { ident, .. }) => ident.to_token_stream(),
-					GenericParam::Lifetime(LifetimeDef { lifetime, .. }) => {
+					GenericParam::Lifetime(LifetimeParam { lifetime, .. }) => {
 						lifetime.to_token_stream()
 					},
 					GenericParam::Const(ConstParam { ident, .. }) => ident.to_token_stream(),

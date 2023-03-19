@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, ToTokens};
-use syn::{punctuated::Punctuated, GenericParam, LifetimeDef, Path, Token, Type, TypeParam};
+use syn::{punctuated::Punctuated, GenericParam, LifetimeParam, Path, Token, Type, TypeParam};
 
 use crate::parse::{
 	DynTraitInfo,
@@ -49,7 +49,7 @@ pub fn gen_vtable(
 			.params
 			.iter()
 			.filter_map(|entry| match entry {
-				GenericParam::Lifetime(LifetimeDef { lifetime, .. }) => {
+				GenericParam::Lifetime(LifetimeParam { lifetime, .. }) => {
 					Some(quote::quote! { &#lifetime () })
 				},
 				GenericParam::Type(TypeParam { ident, .. }) => Some(ident.to_token_stream()),
