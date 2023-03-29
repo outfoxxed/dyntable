@@ -56,9 +56,10 @@ where
 {
 }
 
-unsafe impl<V, A> AsDyn for DynBox<V, A>
+unsafe impl<R, V, A> AsDyn<R> for DynBox<V, A>
 where
 	A: Deallocator,
+	R: VTableRepr + ?Sized,
 	V: VTableRepr + ?Sized,
 	V::VTable: AssociatedDrop + AssociatedLayout,
 {
@@ -103,10 +104,9 @@ where
 	/// # use dyntable::*;
 	/// #[dyntable]
 	/// trait MyTrait {}
-	/// struct MyStruct;
-	/// impl MyTrait for MyStruct {}
+	/// impl MyTrait for u8 {}
 	///
-	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(0u8);
 	/// ```
 	#[inline]
 	pub fn new<'v, T>(data: T) -> Self
@@ -134,10 +134,9 @@ where
 	/// # use dyntable::*;
 	/// #[dyntable]
 	/// trait MyTrait {}
-	/// struct MyStruct;
-	/// impl MyTrait for MyStruct {}
+	/// impl MyTrait for u8 {}
 	///
-	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(0u8);
 	/// let ptr = DynBox::into_raw(x);
 	/// let x: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw(ptr) };
 	/// ```
@@ -165,10 +164,9 @@ where
 	/// # use dyntable::*;
 	/// #[dyntable]
 	/// trait MyTrait {}
-	/// struct MyStruct;
-	/// impl MyTrait for MyStruct {}
+	/// impl MyTrait for u8 {}
 	///
-	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(MyStruct, dyntable::alloc::GlobalAllocator);
+	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(0u8, dyntable::alloc::GlobalAllocator);
 	/// ```
 	#[inline]
 	pub fn new_in<'v, T>(data: T, alloc: A) -> Self
@@ -196,10 +194,9 @@ where
 	/// # use dyntable::*;
 	/// #[dyntable]
 	/// trait MyTrait {}
-	/// struct MyStruct;
-	/// impl MyTrait for MyStruct {}
+	/// impl MyTrait for u8 {}
 	///
-	/// let x: DynBox<dyn MyTrait> = DynBox::try_new_in(MyStruct, dyntable::alloc::GlobalAllocator)?;
+	/// let x: DynBox<dyn MyTrait> = DynBox::try_new_in(0u8, dyntable::alloc::GlobalAllocator)?;
 	/// # Ok::<_, dyntable::alloc::AllocError>(())
 	/// ```
 	#[inline]
@@ -247,10 +244,9 @@ where
 	///
 	/// #[dyntable]
 	/// trait MyTrait {}
-	/// struct MyStruct;
-	/// impl MyTrait for MyStruct {}
+	/// impl MyTrait for u8 {}
 	///
-	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(MyStruct, GlobalAllocator);
+	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(0u8, GlobalAllocator);
 	/// let (ptr, alloc) = DynBox::into_raw_with_allocator(x);
 	/// let x: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw_in(ptr, alloc) };
 	/// ```
@@ -304,10 +300,9 @@ where
 	///
 	/// #[dyntable]
 	/// trait MyTrait {}
-	/// struct MyStruct;
-	/// impl MyTrait for MyStruct {}
+	/// impl MyTrait for u8 {}
 	///
-	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(MyStruct, GlobalAllocator);
+	/// let x: DynBox<dyn MyTrait> = DynBox::new_in(0u8, GlobalAllocator);
 	/// let (ptr, alloc) = DynBox::into_raw_with_allocator(x);
 	/// let x: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw_in(ptr, alloc) };
 	/// ```
@@ -331,10 +326,9 @@ where
 	/// # use dyntable::*;
 	/// #[dyntable]
 	/// trait MyTrait {}
-	/// struct MyStruct;
-	/// impl MyTrait for MyStruct {}
+	/// impl MyTrait for u8 {}
 	///
-	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(0u8);
 	/// let ptr = DynBox::into_raw(x);
 	/// let x: DynBox<dyn MyTrait> = unsafe { DynBox::from_raw(ptr) };
 	/// ```

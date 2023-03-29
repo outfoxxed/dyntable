@@ -249,8 +249,8 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 				MethodReceiver::Reference(_) => quote::quote! {
 					(::dyntable::SubTable::<
 						<(dyn #ident #trait_vt_ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
-					>::subtable(&*self.dyn_vtable()).#fn_ident)(
-						::dyntable::DynSelf::from_raw(self.dyn_ptr()),
+					>::subtable(&*::dyntable::AsDyn::<(dyn #ident #trait_vt_ty_generics + 'static)>::dyn_vtable(self)).#fn_ident)(
+						::dyntable::DynSelf::from_raw(::dyntable::AsDyn::<(dyn #ident #trait_vt_ty_generics + 'static)>::dyn_ptr(self)),
 						#(#arg_list),*
 					)
 				},
@@ -259,12 +259,12 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 					// to be by value
 					let __dyn_result = (::dyntable::SubTable::<
 						<(dyn #ident #trait_vt_ty_generics + 'static) as ::dyntable::VTableRepr>::VTable,
-					>::subtable(&*self.dyn_vtable()).#fn_ident)(
-						self.dyn_ptr(),
+					>::subtable(&*::dyntable::AsDyn::<(dyn #ident #trait_vt_ty_generics + 'static)>::dyn_vtable(&self)).#fn_ident)(
+						::dyntable::AsDyn::<(dyn #ident #trait_vt_ty_generics + 'static)>::dyn_ptr(&self),
 						#(#arg_list),*
 					);
 					// deallocate the pointer without dropping it
-					self.dyn_dealloc();
+					::dyntable::AsDyn::<(dyn #ident #trait_vt_ty_generics + 'static)>::dyn_dealloc(self);
 					__dyn_result
 				},
 			};
@@ -353,17 +353,17 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		impl<
 			#(#impl_generic_entries,)*
 			__AsDyn,
+			__DynRepr,
 		> #ident #ty_generics for __AsDyn
 		where
 			#(#where_predicates,)*
-			__AsDyn: ::dyntable::AsDyn #(+ #as_dyn_bounds)*,
-			__AsDyn::Repr: #ident #trait_vt_ty_generics,
-			<__AsDyn::Repr as ::dyntable::VTableRepr>::VTable:
-				::dyntable::SubTable<#vtable_ident #vt_ty_generics>
-				#(+ ::dyntable::SubTable<
-					<(dyn #subtable_paths + 'static) as ::dyntable::VTableRepr>::VTable
-				>)*,
-			#(<<__AsDyn::Repr as ::dyntable::VTableRepr>::VTable as ::dyntable::VTable>::Bounds: #trait_bounds,)*
+			__AsDyn: ::dyntable::AsDyn<dyn #ident #trait_vt_ty_generics, Repr = __DynRepr>
+				#(+ ::dyntable::AsDyn<(dyn #subtable_paths + 'static), Repr = __DynRepr>)*
+				#(+ #as_dyn_bounds)*,
+			__DynRepr: ::dyntable::VTableRepr + ?::core::marker::Sized + #ident #trait_vt_ty_generics,
+			<__DynRepr as ::dyntable::VTableRepr>::VTable: ::dyntable::SubTable<#vtable_ident #vt_ty_generics>
+				#(+ ::dyntable::SubTable<<(dyn #subtable_paths + 'static) as ::dyntable::VTableRepr>::VTable>)*,
+			#(<<__DynRepr as ::dyntable::VTableRepr>::VTable as ::dyntable::VTable>::Bounds: #trait_bounds,)*
 		{
 			#(#type_impl_entries)*
 			#(#dyn_impl_methods)*

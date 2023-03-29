@@ -373,8 +373,15 @@ impl DynSelf<'_> {
 ///
 /// # Notes
 /// This trait is used to implement dyntable container types.
-pub unsafe trait AsDyn {
-	/// The dyn Trait that will be implemented for this type
+///
+/// The `R` generic parameter is used for disambiguation of AsDyn impls,
+/// to allow implementations of dyntable traits on nonlocal types. When
+/// implemented by the [`dyntable`] macro, it will always be the `dyn` form
+/// of the trait (e.g. `dyn Foo<()>`).
+/// In most cases the disambiguator will be required to call methods on `AsDyn`,
+/// e.g. `AsDyn::<dyn MyTrait>::dyn_vtable(&boxed_mytrait)` to get a vtable.
+pub unsafe trait AsDyn<R: VTableRepr + ?Sized> {
+	/// The dyn Trait that will be implemented for this type.
 	type Repr: VTableRepr + ?Sized;
 
 	/// Returns a pointer to the underlying data of this dynptr.
@@ -431,14 +438,12 @@ impl<'a, V: VTableRepr + ?Sized> DynRef<'a, V> {
 	///     extern "C" fn foo(&self);
 	/// }
 	///
-	/// struct MyStruct;
-	///
-	/// impl MyTrait for MyStruct {
+	/// impl MyTrait for u8 {
 	///     extern "C" fn foo(&self) {}
 	/// }
 	///
 	/// // leak a dynbox into a raw ptr
-	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(0u8);
 	/// let ptr = DynBox::into_raw(x);
 	///
 	/// unsafe { DynRef::from_raw(ptr).foo() };
@@ -543,14 +548,12 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 	///     extern "C" fn foo(&mut self);
 	/// }
 	///
-	/// struct MyStruct;
-	///
-	/// impl MyTrait for MyStruct {
+	/// impl MyTrait for u8 {
 	///     extern "C" fn foo(&mut self) {}
 	/// }
 	///
 	/// // leak a dynbox into a raw ptr
-	/// let x: DynBox<dyn MyTrait> = DynBox::new(MyStruct);
+	/// let x: DynBox<dyn MyTrait> = DynBox::new(0u8);
 	/// let ptr = DynBox::into_raw(x);
 	///
 	/// unsafe { DynRefMut::from_raw(ptr).foo() };
@@ -656,7 +659,11 @@ impl<V: VTableRepr + ?Sized> DynRefCallProxy<'_, V> {
 	}
 }
 
-unsafe impl<V: VTableRepr + ?Sized> AsDyn for DynRefCallProxy<'_, V> {
+unsafe impl<R, V> AsDyn<R> for DynRefCallProxy<'_, V>
+where
+	R: VTableRepr + ?Sized,
+	V: VTableRepr + ?Sized,
+{
 	type Repr = V;
 
 	#[inline(always)]

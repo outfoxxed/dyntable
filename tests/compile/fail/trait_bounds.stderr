@@ -32,11 +32,35 @@ help: consider further restricting type parameter `__AsDyn`
 18 | #[dyntable], __AsDyn: NonDyntableTrait
    |            +++++++++++++++++++++++++++
 
-error[E0277]: the trait bound `<<__AsDyn as AsDyn>::Repr as VTableRepr>::VTable: SubTable<RequiredTraitVTable>` is not satisfied
+error[E0277]: the trait bound `__AsDyn: AsDyn<(dyn RequiredTrait + 'static)>` is not satisfied
   --> tests/compile/fail/trait_bounds.rs:47:7
    |
 47 | trait MissingExplicitBoundInheritance: ImplementedTrait
-   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `SubTable<RequiredTraitVTable>` is not implemented for `<<__AsDyn as AsDyn>::Repr as VTableRepr>::VTable`
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `AsDyn<(dyn RequiredTrait + 'static)>` is not implemented for `__AsDyn`
+   |
+note: required for `__AsDyn` to implement `ImplementedTrait`
+  --> tests/compile/fail/trait_bounds.rs:38:1
+   |
+38 | #[dyntable]
+   | ^^^^^^^^^^^
+39 | trait ImplementedTrait: RequiredTrait
+   |       ^^^^^^^^^^^^^^^^
+note: required by a bound in `MissingExplicitBoundInheritance`
+  --> tests/compile/fail/trait_bounds.rs:47:40
+   |
+47 | trait MissingExplicitBoundInheritance: ImplementedTrait
+   |                                        ^^^^^^^^^^^^^^^^ required by this bound in `MissingExplicitBoundInheritance`
+   = note: this error originates in the attribute macro `dyntable` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider further restricting type parameter `__AsDyn`
+   |
+46 | #[dyntable], __AsDyn: dyntable::AsDyn<(dyn RequiredTrait + 'static)>
+   |            +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `<__DynRepr as VTableRepr>::VTable: SubTable<RequiredTraitVTable>` is not satisfied
+  --> tests/compile/fail/trait_bounds.rs:47:7
+   |
+47 | trait MissingExplicitBoundInheritance: ImplementedTrait
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `SubTable<RequiredTraitVTable>` is not implemented for `<__DynRepr as VTableRepr>::VTable`
    |
 note: required for `__AsDyn` to implement `ImplementedTrait`
   --> tests/compile/fail/trait_bounds.rs:38:1

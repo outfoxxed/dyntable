@@ -120,11 +120,14 @@ impl Parse for DynTraitBody {
 		};
 
 		let mut methods = Vec::<MethodEntry>::new();
-		let mut associated_types = Vec::<TraitItemType>::new();
+		let associated_types = Vec::<TraitItemType>::new();
 
 		for item in dyntrait.items {
 			match item {
-				TraitItem::Type(item) => associated_types.push(item),
+				TraitItem::Type(item) => {
+					return Err(syn::Error::new_spanned(item, "associated types are currently unsupported in #[dyntable] traits"));
+					//associated_types.push(item)
+				},
 				TraitItem::Fn(TraitItemFn { sig, .. }) => methods.push(MethodEntry::try_from(sig)?),
 
 				TraitItem::Const(entry) => return Err(syn::Error::new_spanned(entry, "associated constants are not supported in #[dyntable] traits")),
