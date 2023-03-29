@@ -12,9 +12,9 @@
 | Custom Allocators           | :heavy_check_mark:                   | :x:                              | :x:                | :x:                              | :x:                |
 | Uses Thunks[^m-thunk]       | By-Value Fns                         | Never                            | Always             | Unknown                          | Always             |
 | Trait Bounds / Supertraits  | :heavy_check_mark:[^dyntable-bounds] | :heavy_check_mark:[^thin-bounds] | :x:                | :heavy_check_mark:[^sabi-bounds] | :x:                |
+| Trait Groups[^m-groups]     | :x:                                  | :x:                              | :heavy_check_mark: | :x:                              | :x:                |
 | Trait Generics              | :heavy_check_mark:                   | :x:                              | :heavy_check_mark: | :heavy_check_mark:               | :x:                |
 | Default Generics            | :heavy_check_mark:                   | :x:                              | :x:                | :heavy_check_mark:               | :x:                |
-| Trait Groups[^m-groups]     | :x:                                  | :x:                              | :heavy_check_mark: | :x:                              | :x:                |
 | Trait Lifetime Generics     | :heavy_check_mark:                   | :x:                              | :x:                | :heavy_check_mark:               | :x:                |
 | Fn Generics                 | :x:                                  | :x:                              | Panics             | :x:                              | :x:                |
 | Fn Lifetime Generics        | :heavy_check_mark:                   | :x:                              | :heavy_check_mark: | :heavy_check_mark:               | :x:                |
