@@ -570,12 +570,16 @@ impl<'a, V: VTableRepr + ?Sized> DynRefMut<'a, V> {
 	}
 
 	#[inline(always)]
-	pub fn borrow(b: &Self) -> DynRef<V> {
-		unsafe { DynRef::from_raw(b.ptr) }
+	pub fn borrow(r: &Self) -> DynRef<V> {
+		// SAFETY: the lifetime of the returned DynRef matches that of `r`'s borrow,
+		// and therefore cannot escape and allow an XOR mutability violation.
+		unsafe { DynRef::from_raw(r.ptr) }
 	}
 
 	#[inline(always)]
 	pub fn borrow_mut(r: &mut Self) -> DynRefMut<V> {
+		// SAFETY: the lifetime of the returned DynRefMut matches that of `r`'s borrow,
+		// and therefore cannot escape and allow two mutable references to the same data.
 		unsafe { DynRefMut::from_raw(r.ptr) }
 	}
 
@@ -650,11 +654,13 @@ pub struct DynRefCallProxy<'a, V: VTableRepr + ?Sized> {
 impl<V: VTableRepr + ?Sized> DynRefCallProxy<'_, V> {
 	#[inline(always)]
 	fn from_raw(ptr: &DynPtr<V>) -> &Self {
+		// SAFETY: `DynRefCallProxy`'s layout matches that of a `DynPtr`
 		unsafe { mem::transmute(ptr) }
 	}
 
 	#[inline(always)]
 	fn from_raw_mut(ptr: &mut DynPtr<V>) -> &mut Self {
+		// SAFETY: `DynRefCallProxy`'s layout matches that of a `DynPtr`
 		unsafe { mem::transmute(ptr) }
 	}
 }
