@@ -27,7 +27,6 @@ upcasting. Implementing dyntable traits works exactly the same as normal rust tr
 - Custom allocator support
 - Uses existing `dyn` syntax
 - Only one annotation macro required per trait
-- (Limited) associated type support
 
 # Examples
 Below is a simple example from the docs
