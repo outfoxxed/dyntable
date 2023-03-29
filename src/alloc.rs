@@ -8,9 +8,7 @@ use core::{alloc::Layout, fmt, ptr::NonNull};
 /// (usually the type implementing `Deallocator` will also
 /// implement `Allocator`)
 pub trait Deallocator {
-	/// Deallocate a compatible block of memory, given a pointer
-	/// to it and associated information about it (usually the
-	/// memory layout or `()`)
+	/// Deallocate a compatible block of memory.
 	///
 	/// # Safety
 	/// The given pointer must be allocated by this allocator,
@@ -26,6 +24,11 @@ pub trait Allocator: Deallocator {
 	/// # Errors
 	/// An [`AllocError`] is returned if the allocator cannot
 	/// allocate the specified memory block for any reason.
+	///
+	/// Implementations are encouraged to return Err on memory exhaustion
+	/// rather than panicking or aborting, but this is not a strict requirement.
+	/// (Specifically: it is legal to implement this trait atop an underlying
+	/// native allocation library that aborts on memory exhaustion.)
 	fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError>;
 }
 
@@ -116,27 +119,25 @@ impl<T: std_alloc::alloc::Allocator> Deallocator for T {
 
 #[cfg(any(doc, all(feature = "alloc", not(feature = "allocator_api"))))]
 impl Allocator for GlobalAllocator {
-	/// Allocate a block of memory, given its layout
-	///
-	/// # Errors
-	/// An [`AllocError`] is returned if the allocator cannot
-	/// allocate the specified memory block for any reason.
-	///
-	/// # Panics
-	/// If the global rust allocator cannot allocate the specified
-	/// memory block for any reason, this function will panic. To get
-	/// an `Err` instead of panicing, enable the crate feature `allocator_api`.
-	///
-	/// # Errors
-	/// While this function returns a result, it will never return an
-	/// [`AllocError`]. Instead it will panic.
-	#[inline(always)]
+	#[inline]
 	fn allocate(&self, layout: MemoryLayout) -> Result<NonNull<[u8]>, AllocError> {
 		unsafe {
-			Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
-				std_alloc::alloc::alloc(layout.into()),
-				0,
-			)))
+			if layout.is_zero_sized() {
+				return Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
+					layout.align as *mut u8,
+					0,
+				)))
+			}
+
+			let memory = std_alloc::alloc::alloc(layout.into());
+
+			match memory.is_null() {
+				true => Err(AllocError),
+				false => Ok(NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
+					memory,
+					layout.size,
+				))),
+			}
 		}
 	}
 }

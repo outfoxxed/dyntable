@@ -206,22 +206,13 @@ where
 		T: DynTrait<'v, V::VTable>,
 		V::VTable: 'v,
 	{
-		let layout = MemoryLayout::new::<MaybeUninit<T>>();
+		let layout = MemoryLayout::new::<T>();
 
 		unsafe {
-			let ptr = match layout.is_zero_sized() {
-				true => NonNull::<MaybeUninit<T>>::dangling(),
-				false => {
-					let ptr = alloc.allocate(layout)?.cast();
-					(ptr.as_ptr() as *mut _ as *mut T).write(data);
-					ptr
-				},
-			};
+			let ptr = alloc.allocate(layout)?.cast::<T>().as_ptr();
+			ptr.write(data);
 
-			Ok(Self::from_raw_in(
-				DynPtr::new(ptr.as_ptr() as *mut _ as *mut T),
-				alloc,
-			))
+			Ok(Self::from_raw_in(DynPtr::new(ptr), alloc))
 		}
 	}
 
