@@ -2,6 +2,14 @@
 name = "dyntable-macro"
 version = "0.1.0"
 edition = "2021"
+description = "Proc macro crate for dyntable. You do not need to include this directly."
+documentation = "https://docs.rs/dyntable"
+readme = "README.md"
+repository = "https://github.com/outfoxxed/dyntable"
+license = "Apache-2.0 or MIT"
+authors = ["outfoxxed <outfoxxed@outfoxxed.me>"]
+keywords = ["dyn", "trait", "vtable", "abi", "ffi"]
+categories = ["development-tools::ffi", "rust-patterns", "no-std", "no-std::no-alloc"]
 
 [lib]
 proc-macro = true

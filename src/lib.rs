@@ -116,10 +116,10 @@
 
 #![cfg_attr(not(any(feature = "std", doc)), no_std)]
 #![cfg_attr(feature = "allocator_api", feature(allocator_api))]
-#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(nightlydoc, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[cfg_attr(nightlydoc, doc(cfg(feature = "alloc")))]
 extern crate alloc as std_alloc;
 
 use core::{
@@ -138,7 +138,7 @@ pub mod alloc;
 pub mod boxed;
 
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[cfg_attr(nightlydoc, doc(cfg(feature = "alloc")))]
 pub use boxed::DynBox;
 
 /// This trait provides an instance of the given VTable matching this
@@ -692,22 +692,13 @@ use alloc::MemoryLayout;
 /// This macro implements functionality required to use the
 /// annotated trait as a FFI safe dynptr.
 ///
-/// When applied to a trait, this macro will generate
-/// - A VTable representing the trait, including its bounds and methods.
-///   (see [VTable Layout](#vtable-layout))
-/// - Implementations of [`VTableRepr`], which provides a path
-///   to vtables associated with the trait.
-/// - An implementation of the trait for all types implementing
-///   [`AsDyn`]`<Repr = (your trait)>`, such as [`DynRef`]`<dyn (your trait)>`.
-/// - Various boilerplate used in the above implementations.
-///
 /// # Trait Requirements
 /// - The trait must only contain methods (associated functions and const
 ///   values are not yet supported)
 /// - All trait methods must explicitly specify their ABI, usually `C`, unless
 ///   the `relax_abi = true` parameter is passed to the `#[dyntable]` invocation
 /// - No trait methods may have a receiver type other than `Self`, and must use
-///   the explicit self shorthand (`fn foo(&self)`)
+///   the implicit self shorthand (`fn foo(&self)`)
 /// - The trait must be [object safe][ref-obj-safety].
 /// - All trait bounds (supertraits) must also be `#[dyntable]` annotated traits
 ///   (except `Send` and `Sync`)
@@ -976,9 +967,10 @@ use alloc::MemoryLayout;
 ///   (see `src/private.rs` for details)
 /// - Implementations of [`AssociatedDrop`] and [`AssociatedLayout`] for the generated
 ///   vtable when the drop function and embedded layout are enabled.
-/// - An implementation of your trait for all types implementing [`AsDyn`] (dyntrait containers
-///   such as [`DynBox`] or [`DynRef`]) where `AsDyn::Repr: Subtable<YourTraitVTable>` (your trait
-///   and all traits bounded on your trait).
+/// - An implementation of your trait for all types implementing
+///   [`AsDyn<dyn YourTrait>`](AsDyn) (dyntrait containers such as [`DynBox`] or [`DynRef`])
+///   where `AsDyn::Repr: Subtable<YourTraitVTable>`
+///   (your trait and all traits bounded on your trait).
 ///
 /// [ref-obj-safety]: https://doc.rust-lang.org/reference/items/traits.html#object-safety
 pub use dyntable_macro::dyntable;

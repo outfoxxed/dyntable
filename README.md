@@ -1,6 +1,6 @@
 # dyntable
 [![crates.io](https://img.shields.io/crates/v/dyntable?style=for-the-badge&logo=rust)](https://crates.io/crates/dyntable)
-[![docs.rs](https://img.shields.io/badge/docs.rs-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs)](https://docs.rs/dyntable/latest/dyntable)
+[![docs.rs](https://img.shields.io/badge/docs.rs-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs)](https://docs.rs/dyntable)
 
 (Almost) fully featured, Idiomatic, and FFI Safe traits.
 
@@ -57,6 +57,12 @@ let greeter_box = DynBox::<dyn MessageBuilder>::new(greeter);
 // methods implemented on a dyntrait are callable directly from the DynBox.
 assert_eq!(greeter_box.build(), "Hello World!");
 ```
+
+# Stability
+This crate is somewhat early in development.
+Things most likely won't break if you stick to the non-internal types
+(pointer, ref, box, the macro), but more internal ones may.
+A semver bump will be required for breaking interface changes.
 
 # Alternatives
 A few other crates may suit your needs better than dyntable. There is a comparison in

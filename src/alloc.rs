@@ -69,7 +69,7 @@ impl MemoryLayout {
 pub struct AllocError;
 
 #[cfg(feature = "std")]
-#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
+#[cfg_attr(nightlydoc, doc(cfg(feature = "std")))]
 impl std::error::Error for AllocError {}
 
 impl fmt::Display for AllocError {

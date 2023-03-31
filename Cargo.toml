@@ -2,12 +2,20 @@
 name = "dyntable"
 version = "0.1.0"
 edition = "2021"
+description = "(Almost) fully featured, Idiomatic, and FFI Safe traits"
+documentation = "https://docs.rs/dyntable"
+readme = "README.md"
+repository = "https://github.com/outfoxxed/dyntable"
+license = "Apache-2.0 or MIT"
+authors = ["outfoxxed <outfoxxed@outfoxxed.me>"]
+keywords = ["dyn", "trait", "vtable", "abi", "ffi"]
+categories = ["development-tools::ffi", "rust-patterns", "no-std", "no-std::no-alloc"]
 
 [features]
 default = ["std"]
-alloc = []
-allocator_api = ["alloc"]
 std = ["alloc"]
+allocator_api = ["alloc"]
+alloc = []
 
 [dependencies.dyntable-macro]
 path = "dyntable-macro"
@@ -20,6 +28,6 @@ libloading = "^0.7"
 [package.metadata.docs.rs]
 # document all features
 all-features = true
-# defines the configuration attribute `docsrs`
-rustdoc-args = ["--cfg", "docsrs"]
+# defines the configuration attribute `nightlydoc`
+rustdoc-args = ["--cfg", "nightlydoc"]
 

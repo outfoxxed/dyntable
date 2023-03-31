@@ -1,6 +1,6 @@
 | Feature                     | dyntable                             | [thin_trait_object]              | [cglue]            | [abi_stable]                     | [vtable]           |
 |-----------------------------|--------------------------------------|----------------------------------|--------------------|----------------------------------|--------------------|
-| Version                     | 0.0.0                                | 1.1.2                            | 0.2.12             | 0.11.1                           | 0.1.9              |
+| Version                     | 0.1.0                                | 1.1.2                            | 0.2.12             | 0.11.1                           | 0.1.9              |
 | License                     | Apache-2.0                           | MIT/Apache-2.0                   | MIT                | MIT/Apache-2.0                   | GPLv3              |
 | Scope                       | FFI Traits                           | FFI Traits                       |                    | Full Rust FFI                    | FFI Traits         |
 | C FFI                       | :heavy_check_mark:                   | :heavy_check_mark:               | :heavy_check_mark: | :x:                              | :heavy_check_mark: |
