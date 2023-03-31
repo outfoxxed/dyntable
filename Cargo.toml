@@ -10,6 +10,7 @@ license = "Apache-2.0 or MIT"
 authors = ["outfoxxed <outfoxxed@outfoxxed.me>"]
 keywords = ["dyn", "trait", "vtable", "abi", "ffi"]
 categories = ["development-tools::ffi", "rust-patterns", "no-std", "no-std::no-alloc"]
+exclude = ["COMPARISON.md"]
 
 [features]
 default = ["std"]

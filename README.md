@@ -24,9 +24,11 @@ upcasting. Implementing dyntable traits works exactly the same as normal rust tr
 ## Notable features
 - Uses fat pointers internally
 - Trait bounds and trait upcasting
-- Custom allocator support
+- Custom allocator support (optionally using std's `allocator_api`)
 - Uses existing `dyn` syntax
 - Only one annotation macro required per trait
+- Extensive testing
+- Passes Miri
 
 # Examples
 Below is a simple example from the docs
