@@ -2,7 +2,7 @@
 name = "dyntable"
 version = "0.1.0"
 edition = "2021"
-description = "(Almost) fully featured, Idiomatic, and FFI Safe traits"
+description = "Idiomatic and FFI Safe dyn traits"
 documentation = "https://docs.rs/dyntable"
 readme = "README.md"
 repository = "https://github.com/outfoxxed/dyntable"

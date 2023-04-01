@@ -1,4 +1,4 @@
-//! (Almost) fully featured, Idiomatic, and FFI Safe traits.
+//! Idiomatic and FFI Safe dyn traits.
 //!
 //! # Overview
 //! This crate is an alternative implementation of Rust trait objects that
