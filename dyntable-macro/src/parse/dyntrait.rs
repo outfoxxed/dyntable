@@ -35,6 +35,7 @@ use syn::{
 	TraitItemType,
 	Type,
 	TypeParamBound,
+	TypeReference,
 	TypeTraitObject,
 	Visibility,
 	WhereClause,
@@ -159,27 +160,55 @@ fn strip_dyn_entries(where_clause: &mut WhereClause) -> Result<Vec<DynPredicate>
 	let mut where_predicates = Punctuated::<WherePredicate, Token![,]>::new();
 	mem::swap(&mut where_predicates, &mut where_clause.predicates);
 
-	for predicate in where_predicates {
-		// purposefully avoids `Type::Paren`, which acts as an escape hatch
-		if let WherePredicate::Type(PredicateType {
-			bounded_ty:
-				Type::TraitObject(
-					traitobj @ TypeTraitObject {
-						dyn_token: Some(_), ..
-					},
-				),
-			..
-		}) = &predicate
-		{
-			let traitobj_span = traitobj.span();
-
+	'ploop: for predicate in where_predicates {
+		// This mess is needed to failibly pattern match, only consuming the predicate on success.
+		'dynparse: {
 			let WherePredicate::Type(PredicateType {
-				bounded_ty: Type::TraitObject(TypeTraitObject { dyn_token: Some(dyn_token), bounds }),
-				lifetimes,
-				colon_token,
-				bounds: predicate_bounds,
-			}) = predicate else {
-				unreachable!("pattern matched on reference immediately before destructure")
+				bounded_ty,
+				..
+			}) = &predicate else { break 'dynparse };
+
+			let traitobj_span = bounded_ty.span();
+
+			// purposefully avoids `Type::Paren`, which acts as an escape hatch
+			let (lifetimes, colon_token, predicate_bounds, ref_token, dyn_token, bounds) = match bounded_ty {
+				Type::TraitObject(TypeTraitObject { dyn_token: Some(_), bounds: _ }) => {
+					let WherePredicate::Type(PredicateType {
+						lifetimes,
+						colon_token,
+						bounds: predicate_bounds,
+						bounded_ty: Type::TraitObject(TypeTraitObject { dyn_token: Some(dyn_token), bounds }),
+					}) = predicate else { unreachable!() };
+
+					(lifetimes, colon_token, predicate_bounds, None, dyn_token, bounds)
+				},
+
+				Type::Reference(TypeReference { and_token: _, lifetime: None, mutability: None, elem }) => match &**elem {
+					Type::TraitObject(TypeTraitObject { dyn_token: Some(_), bounds: _ }) => {
+						let WherePredicate::Type(PredicateType {
+							lifetimes,
+							colon_token,
+							bounds: predicate_bounds,
+							bounded_ty: Type::Reference(TypeReference { and_token, elem, .. }),
+						}) = predicate else { unreachable!() };
+						let Type::TraitObject(TypeTraitObject {
+							dyn_token: Some(dyn_token),
+							bounds,
+						}) = *elem else { unreachable!() };
+
+						(lifetimes, colon_token, predicate_bounds, Some(and_token), dyn_token, bounds)
+					},
+
+					_ => break 'dynparse,
+				},
+
+				Type::Reference(TypeReference { lifetime: Some(lifetime), .. }) =>
+					return Err(syn::Error::new_spanned(lifetime, "unexpected lifetime in ref dyn bound; wrap the bound in () to skip dyn parsing")),
+
+				Type::Reference(TypeReference { mutability: Some(mutability), .. }) =>
+					return Err(syn::Error::new_spanned(mutability, "unexpected mut in ref dyn bound; wrap the bound in () to skip dyn parsing")),
+
+				_ => break 'dynparse,
 			};
 
 			let bounded_ty = {
@@ -266,20 +295,24 @@ fn strip_dyn_entries(where_clause: &mut WhereClause) -> Result<Vec<DynPredicate>
 			};
 
 			dyn_entries.push(DynPredicate {
+				ref_token,
 				dyn_token,
 				bounded_ty,
 				colon_token,
 				bounds,
 			});
-		} else {
-			where_clause.predicates.push(predicate);
+
+			break 'ploop
 		}
+
+		where_clause.predicates.push(predicate);
 	}
 
 	Ok(dyn_entries)
 }
 
 pub struct DynPredicate {
+	pub ref_token: Option<Token![&]>,
 	pub dyn_token: Token![dyn],
 	pub bounded_ty: Path,
 	pub colon_token: Token![:],
