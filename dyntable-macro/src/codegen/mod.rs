@@ -20,6 +20,7 @@ use crate::parse::{
 	Subtable,
 	SubtableChildGraph,
 	SubtableEntry,
+	TopLevelSubtable,
 	VTableEntry,
 };
 
@@ -113,10 +114,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			TypeParamBound::Trait(TraitBound {
 				path: superpath, ..
 			}) => !dyntrait.entries.iter().any(|entry| match entry {
-				VTableEntry::Subtable(SubtableEntry {
-					subtable: Subtable { path, .. },
-					..
-				}) if path == superpath => true,
+				VTableEntry::Subtable(entry) if &entry.subtable.subtable.path == superpath => true,
 				_ => false,
 			}),
 			_ => false,
@@ -170,7 +168,11 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 		VTableEntry::Method(_) => None,
 		VTableEntry::Subtable(SubtableEntry {
 			ident: subtable_ident,
-			subtable,
+			subtable: TopLevelSubtable {
+				ref_token,
+				subtable,
+				..
+			},
 		}) => Some({
 			let child_entries = subtable.flatten_child_graph().into_iter().map(
 				|SubtableChildGraph {
@@ -198,6 +200,11 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 
 			let subtable_path = &subtable.path;
 
+			let getter = match ref_token {
+				Some(_) => quote::quote! { unsafe { &*self.#subtable_ident } },
+				None => quote::quote! { &self.#subtable_ident },
+			};
+
 			quote::quote! {
 				#[allow(non_camel_case_types)]
 				impl #vt_impl_generics
@@ -208,7 +215,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 					fn subtable(&self) ->
 						&<(dyn #subtable_path + 'static) as ::dyntable::VTableRepr>::VTable
 					{
-						&self.#subtable_ident
+						#getter
 					}
 				}
 
@@ -224,7 +231,7 @@ pub fn codegen(dyntrait: &DynTraitInfo) -> TokenStream {
 			VTableEntry::Method(_) => None,
 			VTableEntry::Subtable(x) => Some(x),
 		})
-		.flat_map(|subtable| subtable.subtable.flatten())
+		.flat_map(|entry| entry.subtable.subtable.flatten())
 		.map(|subtable| &subtable.path)
 		.collect::<Vec<_>>();
 

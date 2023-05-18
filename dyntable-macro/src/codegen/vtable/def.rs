@@ -1,6 +1,15 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, ToTokens};
-use syn::{punctuated::Punctuated, GenericParam, LifetimeParam, Path, Token, Type, TypeParam};
+use syn::{
+	punctuated::Punctuated,
+	spanned::Spanned,
+	GenericParam,
+	LifetimeParam,
+	Path,
+	Token,
+	Type,
+	TypeParam,
+};
 
 use crate::parse::{
 	DynTraitInfo,
@@ -10,6 +19,7 @@ use crate::parse::{
 	ReceiverReference,
 	Subtable,
 	SubtableEntry,
+	TopLevelSubtable,
 	VTableEntry,
 	VTableInfo,
 };
@@ -82,9 +92,16 @@ fn gen_vtable_entry(dyntrait: &DynTraitInfo, entry: &VTableEntry) -> TokenStream
 	match entry {
 		VTableEntry::Subtable(SubtableEntry {
 			ident,
-			subtable: Subtable { path, .. },
-		}) => quote::quote! {
-			#ident: <(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable
+			subtable: TopLevelSubtable {
+				ref_token,
+				subtable: Subtable { path, .. },
+			},
+		}) => {
+			let pointer_tok = ref_token.map(|tok| quote::quote_spanned! (tok.span() => *const));
+
+			quote::quote! {
+				#ident: #pointer_tok <(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable
+			}
 		},
 		VTableEntry::Method(method) => gen_vtable_method(dyntrait, method),
 	}

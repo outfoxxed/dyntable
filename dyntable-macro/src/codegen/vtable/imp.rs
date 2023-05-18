@@ -19,6 +19,7 @@ use crate::parse::{
 	MethodReceiver,
 	Subtable,
 	SubtableEntry,
+	TopLevelSubtable,
 	TraitInfo,
 	VTableEntry,
 	VTableInfo,
@@ -79,13 +80,21 @@ pub fn gen_impl(
 	let entries = dyntrait.entries.iter().map(|entry| match entry {
 		VTableEntry::Subtable(SubtableEntry {
 			ident,
-			subtable: Subtable { path, .. },
-		}) => {
-			quote::quote! {
+			subtable: TopLevelSubtable {
+				ref_token,
+				subtable: Subtable { path, .. },
+			},
+		}) => match ref_token {
+			Some(_) => quote::quote! {
+				#ident: <__DynTarget as ::dyntable::DynTrait<
+					<(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable,
+				>>::STATIC_VTABLE
+			},
+			None => quote::quote! {
 				#ident: <__DynTarget as ::dyntable::DynTrait<
 					<(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable,
 				>>::VTABLE
-			}
+			},
 		},
 		VTableEntry::Method(method) => gen_method_entry(dyntrait, method),
 	});

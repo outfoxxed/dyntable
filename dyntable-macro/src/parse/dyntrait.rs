@@ -42,7 +42,14 @@ use syn::{
 	WherePredicate,
 };
 
-use super::{MethodEntry, MethodParam, MethodReceiver, ReceiverReference, Subtable};
+use super::{
+	MethodEntry,
+	MethodParam,
+	MethodReceiver,
+	ReceiverReference,
+	Subtable,
+	TopLevelSubtable,
+};
 use crate::parse::SubtableEntry;
 
 /// Validated #[dyntable] trait AST tokens
@@ -89,10 +96,10 @@ impl Parse for DynTraitBody {
 				.map(|subtable| {
 					// "friendly name" of a trait.
 					// `foo::Bar<Baz>` becomes `Bar`
-					let bound_name = subtable.path.segments.last()
+					let bound_name = subtable.subtable.path.segments.last()
 						// under what circumstances would you type `trait MyTrait: :: {}`
 						.ok_or_else(|| syn::Error::new_spanned(
-							&subtable.path,
+							&subtable.subtable.path,
 							"not a valid path",
 						))?
 						.ident
@@ -302,7 +309,7 @@ fn strip_dyn_entries(where_clause: &mut WhereClause) -> Result<Vec<DynPredicate>
 				bounds,
 			});
 
-			break 'ploop
+			continue 'ploop
 		}
 
 		where_clause.predicates.push(predicate);
@@ -327,15 +334,19 @@ pub struct DynPredicate {
 fn solve_subtables(
 	trait_bounds: impl Iterator<Item = TraitBound>,
 	where_predicates: impl Iterator<Item = DynPredicate>,
-) -> syn::Result<Vec<Subtable>> {
+) -> syn::Result<Vec<TopLevelSubtable>> {
 	let mut supertrait_map = HashMap::<Path, Option<Punctuated<Path, Token![+]>>>::new();
 	// paths can only be specified once
 	let mut specified_paths = HashSet::<Path>::new();
+	let mut ref_tokens = HashMap::<Path, Token![&]>::new();
 
 	// Create a supertrait -> bound list mapping of all
 	// specified dyn supertraits in a where clause
 	for DynPredicate {
-		bounded_ty, bounds, ..
+		ref_token,
+		bounded_ty,
+		bounds,
+		..
 	} in where_predicates
 	{
 		match supertrait_map.get(&bounded_ty) {
@@ -351,6 +362,10 @@ fn solve_subtables(
 					}
 				}
 
+				if let Some(ref_token) = ref_token {
+					ref_tokens.insert(bounded_ty.clone(), ref_token);
+				}
+
 				supertrait_map.insert(bounded_ty, Some(bounds));
 			},
 			Some(_) => {
@@ -362,7 +377,7 @@ fn solve_subtables(
 		}
 	}
 
-	let mut subtables = Vec::<Subtable>::new();
+	let mut subtables = Vec::<TopLevelSubtable>::new();
 	// keeps track of used entries to disallow unused entries
 	let mut used_supertrait_entries = HashSet::<Path>::new();
 
@@ -370,11 +385,12 @@ fn solve_subtables(
 	// dyn entries in the where clause.
 	for TraitBound { path, .. } in trait_bounds {
 		if supertrait_map.contains_key(&path) {
-			subtables.push(graph_subtables(
-				path,
-				&supertrait_map,
-				&mut used_supertrait_entries,
-			));
+			let ref_token = ref_tokens.remove(&path);
+
+			subtables.push(TopLevelSubtable {
+				ref_token,
+				subtable: graph_subtables(path, &supertrait_map, &mut used_supertrait_entries),
+			});
 		}
 	}
 
@@ -387,6 +403,13 @@ fn solve_subtables(
 				"dyn trait bound has no relation to the defined trait. dyn bounds must match a direct trait bound or indirect trait bound (through a different dyn bound)",
 			))
 		}
+	}
+
+	if let Some(ref_token) = ref_tokens.values().into_iter().next() {
+		return Err(syn::Error::new_spanned(
+			ref_token,
+			"reference qualifiers (&) may only be applied to toplevel trait bounds",
+		))
 	}
 
 	Ok(subtables)
