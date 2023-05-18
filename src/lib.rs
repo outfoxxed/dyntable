@@ -808,6 +808,52 @@ use alloc::MemoryLayout;
 /// {}
 /// ```
 ///
+/// A reference qualifier may be used to create a pointer to a trait bound's
+/// VTable instead of inlining it into the VTable. This has the benefit of loosening
+/// backwards compatibility requirements at the cost of additional indirection
+/// at runtime.
+///
+/// ```
+/// # use dyntable::dyntable;
+/// #[dyntable]
+/// trait BoundedType {}
+///
+/// #[dyntable]
+/// trait UsesRefBound: BoundedType
+/// where
+///     &dyn BoundedType:,
+/// {}
+///
+/// trait TopTrait: UsesRefBound
+/// where
+///     // reference qualifiers do not need to be specified for indirect bounds.
+///     dyn UsesRefBound: BoundedType,
+/// {}
+/// ```
+///
+/// Referenced bounds can only be applied to toplevel bounds, as the VTables of
+/// bounded traits can only be changed in their respective definitions:
+///
+/// ```compile_fail
+/// # use dyntable::dyntable;
+/// #[dyntable]
+/// trait BaseBound {}
+///
+/// #[dyntable]
+/// trait IntermediateBound: BaseBound
+/// where
+///     dyn BaseBound:,
+/// {}
+///
+/// #[dyntable]
+/// trait TopTrait: IntermediateBound
+/// where
+///     dyn IntermediateBound: BaseBound,
+///     // error: BaseBound is not a direct bound of TopTrait
+///     &dyn BaseBound:,
+/// {}
+/// ```
+///
 /// ### Dyn bounds in where clause
 /// Rust already defines `dyn Trait` bounds in the `where` clause. However
 /// since they are not commonly used (and are even less likely to be used
@@ -901,10 +947,14 @@ use alloc::MemoryLayout;
 /// trait BoundOfMyTrait2 {}
 ///
 /// #[dyntable]
-/// trait MyTrait: BoundOfMyTrait1 + BoundOfMyTrait2
+/// trait BoundOfMyTrait3 {}
+///
+/// #[dyntable]
+/// trait MyTrait: BoundOfMyTrait1 + BoundOfMyTrait2 + BoundOfMyTrait3
 /// where
 ///     dyn BoundOfMyTrait1: BoundOfBound,
 ///     dyn BoundOfMyTrait2:,
+///     &dyn BoundOfMyTrait3:,
 /// {
 ///     extern "C" fn my_function(&self);
 ///     extern "C" fn my_lifetime_function<'a>(&'a self) -> &'a ();
@@ -926,6 +976,9 @@ use alloc::MemoryLayout;
 ///     // note that BoundOfBound does not have an entry, as it is contained
 ///     // in BoundOfMyTrait's VTable.
 ///     bound2_vtable: <dyn BoundOfMyTrait2 as VTableRepr>::VTable,
+///     // note that BoundOfMyTrait3's vtable is behind a pointer because it
+///     // has a reference qualifier in the where clause.
+///     bound3_vtable: *const <dyn BoundOfMyTrait3 as VTableRepr>::VTable,
 ///
 ///     // any member functions follow
 ///
@@ -944,6 +997,7 @@ use alloc::MemoryLayout;
 /// ## Backwards Compatibility
 /// VTables are fully backwards compatible, as long as:
 /// - The VTables of all trait bounds are backwards compatible.
+/// - The VTables of all non reference trait bounds do not have any new methods or bounds.
 /// - The order of dyn entries for trait bounds must match previous versions.
 /// - The paths given to multilevel trait bounds must match.
 ///   `where dyn A: C, dyn B` is not the same as `where dyn A, dyn B: C`.
