@@ -86,12 +86,12 @@ pub fn gen_impl(
 			},
 		}) => match ref_token {
 			Some(_) => quote::quote! {
-				#ident: <__DynTarget as ::dyntable::DynTrait<
+				#ident: <Self as ::dyntable::DynTrait<
 					<(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable,
 				>>::STATIC_VTABLE
 			},
 			None => quote::quote! {
-				#ident: <__DynTarget as ::dyntable::DynTrait<
+				#ident: <Self as ::dyntable::DynTrait<
 					<(dyn #path + 'static) as ::dyntable::VTableRepr>::VTable,
 				>>::VTABLE
 			},
@@ -134,9 +134,9 @@ pub fn gen_impl(
 						::core::ptr::drop_in_place(ptr as *mut T)
 					}
 
-					thunk::<__DynTarget>
+					thunk::<Self>
 				},)*
-				#(__layout: ::dyntable::alloc::MemoryLayout::new::<__DynTarget>(), #embed_layout)* // embed_layout is a marker
+				#(__layout: ::dyntable::alloc::MemoryLayout::new::<Self>(), #embed_layout)* // embed_layout is a marker
 				#(#entries,)*
 				__generics: ::core::marker::PhantomData,
 			};
@@ -226,7 +226,7 @@ fn gen_method_entry(
 		.collect::<Vec<_>>();
 
 	let fn_path = match receiver {
-		MethodReceiver::Reference(_) => quote::quote! { __DynTarget::#fn_ident },
+		MethodReceiver::Reference(_) => quote::quote! { Self::#fn_ident },
 		MethodReceiver::Value(_) => {
 			// functions that take self by value need a proxy thunk to
 			// convert from a pointer to an owned Self
@@ -267,7 +267,7 @@ fn gen_method_entry(
 					)
 				}
 
-				thunk::<#(#call_generics,)* __DynTarget>
+				thunk::<#(#call_generics,)* Self>
 			}}
 		},
 	};
