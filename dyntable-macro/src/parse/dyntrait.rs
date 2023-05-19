@@ -35,13 +35,21 @@ use syn::{
 	TraitItemType,
 	Type,
 	TypeParamBound,
+	TypeReference,
 	TypeTraitObject,
 	Visibility,
 	WhereClause,
 	WherePredicate,
 };
 
-use super::{MethodEntry, MethodParam, MethodReceiver, ReceiverReference, Subtable};
+use super::{
+	MethodEntry,
+	MethodParam,
+	MethodReceiver,
+	ReceiverReference,
+	Subtable,
+	TopLevelSubtable,
+};
 use crate::parse::SubtableEntry;
 
 /// Validated #[dyntable] trait AST tokens
@@ -88,10 +96,10 @@ impl Parse for DynTraitBody {
 				.map(|subtable| {
 					// "friendly name" of a trait.
 					// `foo::Bar<Baz>` becomes `Bar`
-					let bound_name = subtable.path.segments.last()
+					let bound_name = subtable.subtable.path.segments.last()
 						// under what circumstances would you type `trait MyTrait: :: {}`
 						.ok_or_else(|| syn::Error::new_spanned(
-							&subtable.path,
+							&subtable.subtable.path,
 							"not a valid path",
 						))?
 						.ident
@@ -159,27 +167,55 @@ fn strip_dyn_entries(where_clause: &mut WhereClause) -> Result<Vec<DynPredicate>
 	let mut where_predicates = Punctuated::<WherePredicate, Token![,]>::new();
 	mem::swap(&mut where_predicates, &mut where_clause.predicates);
 
-	for predicate in where_predicates {
-		// purposefully avoids `Type::Paren`, which acts as an escape hatch
-		if let WherePredicate::Type(PredicateType {
-			bounded_ty:
-				Type::TraitObject(
-					traitobj @ TypeTraitObject {
-						dyn_token: Some(_), ..
-					},
-				),
-			..
-		}) = &predicate
-		{
-			let traitobj_span = traitobj.span();
-
+	'ploop: for predicate in where_predicates {
+		// This mess is needed to failibly pattern match, only consuming the predicate on success.
+		'dynparse: {
 			let WherePredicate::Type(PredicateType {
-				bounded_ty: Type::TraitObject(TypeTraitObject { dyn_token: Some(dyn_token), bounds }),
-				lifetimes,
-				colon_token,
-				bounds: predicate_bounds,
-			}) = predicate else {
-				unreachable!("pattern matched on reference immediately before destructure")
+				bounded_ty,
+				..
+			}) = &predicate else { break 'dynparse };
+
+			let traitobj_span = bounded_ty.span();
+
+			// purposefully avoids `Type::Paren`, which acts as an escape hatch
+			let (lifetimes, colon_token, predicate_bounds, ref_token, dyn_token, bounds) = match bounded_ty {
+				Type::TraitObject(TypeTraitObject { dyn_token: Some(_), bounds: _ }) => {
+					let WherePredicate::Type(PredicateType {
+						lifetimes,
+						colon_token,
+						bounds: predicate_bounds,
+						bounded_ty: Type::TraitObject(TypeTraitObject { dyn_token: Some(dyn_token), bounds }),
+					}) = predicate else { unreachable!() };
+
+					(lifetimes, colon_token, predicate_bounds, None, dyn_token, bounds)
+				},
+
+				Type::Reference(TypeReference { and_token: _, lifetime: None, mutability: None, elem }) => match &**elem {
+					Type::TraitObject(TypeTraitObject { dyn_token: Some(_), bounds: _ }) => {
+						let WherePredicate::Type(PredicateType {
+							lifetimes,
+							colon_token,
+							bounds: predicate_bounds,
+							bounded_ty: Type::Reference(TypeReference { and_token, elem, .. }),
+						}) = predicate else { unreachable!() };
+						let Type::TraitObject(TypeTraitObject {
+							dyn_token: Some(dyn_token),
+							bounds,
+						}) = *elem else { unreachable!() };
+
+						(lifetimes, colon_token, predicate_bounds, Some(and_token), dyn_token, bounds)
+					},
+
+					_ => break 'dynparse,
+				},
+
+				Type::Reference(TypeReference { lifetime: Some(lifetime), .. }) =>
+					return Err(syn::Error::new_spanned(lifetime, "unexpected lifetime in ref dyn bound; wrap the bound in () to skip dyn parsing")),
+
+				Type::Reference(TypeReference { mutability: Some(mutability), .. }) =>
+					return Err(syn::Error::new_spanned(mutability, "unexpected mut in ref dyn bound; wrap the bound in () to skip dyn parsing")),
+
+				_ => break 'dynparse,
 			};
 
 			let bounded_ty = {
@@ -266,20 +302,24 @@ fn strip_dyn_entries(where_clause: &mut WhereClause) -> Result<Vec<DynPredicate>
 			};
 
 			dyn_entries.push(DynPredicate {
+				ref_token,
 				dyn_token,
 				bounded_ty,
 				colon_token,
 				bounds,
 			});
-		} else {
-			where_clause.predicates.push(predicate);
+
+			continue 'ploop
 		}
+
+		where_clause.predicates.push(predicate);
 	}
 
 	Ok(dyn_entries)
 }
 
 pub struct DynPredicate {
+	pub ref_token: Option<Token![&]>,
 	pub dyn_token: Token![dyn],
 	pub bounded_ty: Path,
 	pub colon_token: Token![:],
@@ -294,15 +334,19 @@ pub struct DynPredicate {
 fn solve_subtables(
 	trait_bounds: impl Iterator<Item = TraitBound>,
 	where_predicates: impl Iterator<Item = DynPredicate>,
-) -> syn::Result<Vec<Subtable>> {
+) -> syn::Result<Vec<TopLevelSubtable>> {
 	let mut supertrait_map = HashMap::<Path, Option<Punctuated<Path, Token![+]>>>::new();
 	// paths can only be specified once
 	let mut specified_paths = HashSet::<Path>::new();
+	let mut ref_tokens = HashMap::<Path, Token![&]>::new();
 
 	// Create a supertrait -> bound list mapping of all
 	// specified dyn supertraits in a where clause
 	for DynPredicate {
-		bounded_ty, bounds, ..
+		ref_token,
+		bounded_ty,
+		bounds,
+		..
 	} in where_predicates
 	{
 		match supertrait_map.get(&bounded_ty) {
@@ -318,6 +362,10 @@ fn solve_subtables(
 					}
 				}
 
+				if let Some(ref_token) = ref_token {
+					ref_tokens.insert(bounded_ty.clone(), ref_token);
+				}
+
 				supertrait_map.insert(bounded_ty, Some(bounds));
 			},
 			Some(_) => {
@@ -329,7 +377,7 @@ fn solve_subtables(
 		}
 	}
 
-	let mut subtables = Vec::<Subtable>::new();
+	let mut subtables = Vec::<TopLevelSubtable>::new();
 	// keeps track of used entries to disallow unused entries
 	let mut used_supertrait_entries = HashSet::<Path>::new();
 
@@ -337,11 +385,12 @@ fn solve_subtables(
 	// dyn entries in the where clause.
 	for TraitBound { path, .. } in trait_bounds {
 		if supertrait_map.contains_key(&path) {
-			subtables.push(graph_subtables(
-				path,
-				&supertrait_map,
-				&mut used_supertrait_entries,
-			));
+			let ref_token = ref_tokens.remove(&path);
+
+			subtables.push(TopLevelSubtable {
+				ref_token,
+				subtable: graph_subtables(path, &supertrait_map, &mut used_supertrait_entries),
+			});
 		}
 	}
 
@@ -354,6 +403,13 @@ fn solve_subtables(
 				"dyn trait bound has no relation to the defined trait. dyn bounds must match a direct trait bound or indirect trait bound (through a different dyn bound)",
 			))
 		}
+	}
+
+	if let Some(ref_token) = ref_tokens.values().into_iter().next() {
+		return Err(syn::Error::new_spanned(
+			ref_token,
+			"reference qualifiers (&) may only be applied to toplevel trait bounds",
+		))
 	}
 
 	Ok(subtables)

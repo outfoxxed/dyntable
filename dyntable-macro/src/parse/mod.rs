@@ -144,7 +144,7 @@ pub enum VTableEntry {
 #[derive(Debug)]
 pub struct SubtableEntry {
 	pub ident: Ident,
-	pub subtable: Subtable,
+	pub subtable: TopLevelSubtable,
 }
 
 /// A direct or inherited subtable of a different VTable.
@@ -164,6 +164,15 @@ pub struct Subtable {
 	// may be represented differently depending on the
 	// form of the annotated item.
 	pub subtables: Vec<Subtable>,
+}
+
+/// A direct subtable of a toplevel VTable.
+///
+/// Direct subtables may optionally be stored by reference.
+#[derive(Debug)]
+pub struct TopLevelSubtable {
+	pub ref_token: Option<Token![&]>,
+	pub subtable: Subtable,
 }
 
 #[derive(Debug)]

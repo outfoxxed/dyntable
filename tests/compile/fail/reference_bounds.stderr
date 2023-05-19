@@ -1,0 +1,5 @@
+error: reference qualifiers (&) may only be applied to toplevel trait bounds
+  --> tests/compile/fail/reference_bounds.rs:22:2
+   |
+22 |     &dyn BaseTrait:,
+   |     ^
